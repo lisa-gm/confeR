@@ -1,7 +1,7 @@
 library(metafor)
 library(Matrix)
 
-fit_local_glms <- function(data_split, model, target, covariates, center_name) {
+fit_local_glms <- function(data_split, Method, target, covariates, center_name) {
 
     coef_list <- list()
     se_list <- list()
@@ -10,7 +10,7 @@ fit_local_glms <- function(data_split, model, target, covariates, center_name) {
 
     for (i in seq_along(data_split)) {
         sub_x <- data[data[[center_name]] == i, c(target, covariates_local)]
-        sub_fit <- glm(model, family=family, data=sub_x)
+        sub_fit <- glm(Method, family=family, data=sub_x)
         coef_summary <- summary(sub_fit)$coefficients
         coef_list[[i]] <- coef_summary[, "Estimate"]
         se_list[[i]] <- coef_summary[, "Std. Error"]
@@ -47,7 +47,7 @@ fit_mv_meta_fixed <- function(coef_list, cov_list) {
                             upper = fit$ci.ub
                         )
     rownames(results_meta_mv) <- NULL
-    results_meta_mv$Model <- "FE"
+    results_meta_mv$Method <- "FE"
     names(results_meta_mv)[names(results_meta_mv) == "estimate"] <- "Value"
     results_meta_mv
 }
@@ -79,7 +79,7 @@ fit_mv_meta_random <- function(coef_list, cov_list, method="REML") {
                             upper = fit$ci.ub
                         )
     rownames(results_meta_mv) <- NULL
-    results_meta_mv$Model <- toupper(method)
+    results_meta_mv$Method <- toupper(method)
     names(results_meta_mv)[names(results_meta_mv) == "estimate"] <- "Value"
     results_meta_mv
 }

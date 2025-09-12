@@ -104,7 +104,7 @@ bayseq_oneshot <- function(bstats, n_centers, use_local_intercepts,
     did_calculate_glm <- bstats[[1]]$did_calculate_glm
 
     if (did_calculate_glm) {
-        print("Normal model known variance")
+        print("Normal Method known variance")
 
         update_normal_known_variance <- function(beta, sigma) {
             sigma_post <- solve(Reduce(`+`, lapply(sigma, solve)))
@@ -157,7 +157,7 @@ get_bayes_linreg_ci <- function(params_seq, alpha=0.05) {
 }
 
 # Pre-processing wrapper for BaySeq methods
-bayseq_prepare <- function(target, covariates, model, data_split, n_centers, use_local_intercepts, center_name=NULL) {
+bayseq_prepare <- function(target, covariates, Method, data_split, n_centers, use_local_intercepts, center_name=NULL) {
 
     bstats <- vector("list", n_centers)
     did_calculate_glm <- FALSE
@@ -172,7 +172,7 @@ bayseq_prepare <- function(target, covariates, model, data_split, n_centers, use
             if (use_local_intercepts) {
                 stop("Not yet implemented")
             } else {
-                res <- glm(model, family, data_split[[i]])
+                res <- glm(Method, family, data_split[[i]])
                 bstats[[i]] <- list("beta" = res$coefficients, "sigma" = vcov(res))
             }
             did_calculate_glm <- TRUE
@@ -204,13 +204,13 @@ tidy_results <- function(param_seq, use_local_intercepts) {
         params_seq_all <- params_seq_all[!grepl("Intercept_\\d+$", rownames(params_seq_all)), , drop=FALSE]
     }
     df <- data.frame(t(params_seq_all))
-    df$Model <- "BaySeq"
-    df <- df %>% pivot_longer(-Model, names_to = "Covariate", values_to = "Value")
+    df$Method <- "BaySeq"
+    df <- df %>% pivot_longer(-Method, names_to = "Covariate", values_to = "Value")
 
-    params_seq$CI$Model <- "BaySeq"
+    params_seq$CI$Method <- "BaySeq"
     if (!("Covariate" %in% colnames(params_seq$CI)))
         params_seq$CI <- tibble::rownames_to_column(params_seq$CI, var = "Covariate")
 
-    df_merged <- left_join(df, params_seq$CI, by = c("Model", "Covariate"))
+    df_merged <- left_join(df, params_seq$CI, by = c("Method", "Covariate"))
     df_merged
 }
