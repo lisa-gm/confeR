@@ -1,5 +1,7 @@
-library(metafor)
+library(dplyr)
+library(tidyr)
 
+# Compute summary statistics for Bayesian linear regression
 bayes_lin_reg_stats <- function(mat, target, covariates, weights=NULL, k=0, n_centers=0) {
 
     if (k == 0) {
@@ -40,6 +42,7 @@ bayes_lin_reg_stats <- function(mat, target, covariates, weights=NULL, k=0, n_ce
         "n" = n)
 }
 
+# Compute posterior parameters for Bayesian linear regression
 bayes_lin_reg_post_params <- function(bayes_stats_list, prior_params) {
 
     mu0 <- prior_params$mu0
@@ -64,6 +67,7 @@ bayes_lin_reg_post_params <- function(bayes_stats_list, prior_params) {
     )
 }
 
+# Compute maximum a posteriori estimates for Bayesian linear regression
 bayes_lin_reg_post_map <- function(bayes_post_params) {
     beta_l <- bayes_post_params$mu_l
     a_l <- bayes_post_params$a_l
@@ -75,6 +79,7 @@ bayes_lin_reg_post_map <- function(bayes_post_params) {
     list("beta_l" = beta_l, "sigma_l" = sigma_l)
 }
 
+# Define prior for Bayesian linear regression
 get_linreg_prior <- function(covariates, use_local_intercepts, n_centers, epsilon=1e-10) {
     if (use_local_intercepts) {
         prior_params <- list("mu0" = as.matrix(rep(0, length(covariates) + n_centers)),
@@ -92,6 +97,7 @@ get_linreg_prior <- function(covariates, use_local_intercepts, n_centers, epsilo
     prior_params
 }
 
+# Compute BaySeq parameters using one-shot approach
 bayseq_oneshot <- function(bstats, n_centers, use_local_intercepts,
                             covariates, epsilon=1e-10, center_name=NULL) {
     params_seq <- list()
@@ -136,6 +142,7 @@ bayseq_oneshot <- function(bstats, n_centers, use_local_intercepts,
     params_seq
 }
 
+# Compute credible intervals for Bayesian linear regression
 get_bayes_linreg_ci <- function(params_seq, alpha=0.05) {
     z <- qnorm(1 - alpha / 2)  # ≈ 1.96 for 95% CI
 
@@ -149,6 +156,7 @@ get_bayes_linreg_ci <- function(params_seq, alpha=0.05) {
     ci
 }
 
+# Pre-processing wrapper for BaySeq methods
 bayseq_prepare <- function(target, covariates, model, data_split, n_centers, use_local_intercepts, center_name=NULL) {
 
     bstats <- vector("list", n_centers)
@@ -188,4 +196,21 @@ bayseq_prepare <- function(target, covariates, model, data_split, n_centers, use
         bstats[[i]]$did_calculate_glm <- did_calculate_glm
     }
     bstats
+}
+
+tidy_results <- function(param_seq, use_local_intercepts) {
+    params_seq_all <- rbind(params_seq$beta, sigma2 = params_seq$dispersion)
+    if (use_local_intercepts) {
+        params_seq_all <- params_seq_all[!grepl("Intercept_\\d+$", rownames(params_seq_all)), , drop=FALSE]
+    }
+    df <- data.frame(t(params_seq_all))
+    df$Model <- "BaySeq"
+    df <- df %>% pivot_longer(-Model, names_to = "Covariate", values_to = "Value")
+
+    params_seq$CI$Model <- "BaySeq"
+    if (!("Covariate" %in% colnames(params_seq$CI)))
+        params_seq$CI <- tibble::rownames_to_column(params_seq$CI, var = "Covariate")
+
+    df_merged <- left_join(df, params_seq$CI, by = c("Model", "Covariate"))
+    df_merged
 }
