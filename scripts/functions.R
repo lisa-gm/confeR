@@ -48,7 +48,7 @@ fit_mv_meta_fixed <- function(coef_list, cov_list) {
                         )
     rownames(results_meta_mv) <- NULL
     results_meta_mv$Method <- "FE"
-    names(results_meta_mv)[names(results_meta_mv) == "estimate"] <- "Value"
+    names(results_meta_mv)[names(results_meta_mv) == "estimate"] <- "Estimate"
     results_meta_mv
 }
 
@@ -80,6 +80,39 @@ fit_mv_meta_random <- function(coef_list, cov_list, method="REML") {
                         )
     rownames(results_meta_mv) <- NULL
     results_meta_mv$Method <- toupper(method)
-    names(results_meta_mv)[names(results_meta_mv) == "estimate"] <- "Value"
+    names(results_meta_mv)[names(results_meta_mv) == "estimate"] <- "Estimate"
     results_meta_mv
+}
+
+fit_combined_glm <- function(model, model_no_int, use_local_intercepts, center_name) {
+    if (use_local_intercepts) {
+        # Controlled for local center
+        m_expanded <- update(model_no_int, as.formula(paste("~ . +", center_name)))
+        fit_comb_glm <- glm(m_expanded, family, data)
+    } else {
+        fit_comb_glm <- glm(model, family, data)
+    }
+
+    sum_fit <- summary(fit_comb_glm)
+    coefs <- sum_fit$coefficients
+    rownames(coefs) <- sub(paste0("^", center_name), "Intercept_", rownames(coefs))
+    sum_fit$coefficients <- coefs
+
+    ci <- confint(fit_comb_glm, level = 0.95)
+    df_combined <- data.frame(
+    lower = ci[, 1],
+    upper = ci[, 2],
+    Method = "Combined"
+    )
+
+    df_combined <- tibble::rownames_to_column(df_combined, var = "Covariate")
+    df_combined$Covariate <- rownames(coefs)
+    df_combined$Estimate <- as.data.frame(coefs)$Estimate
+
+    # Add dispersion
+    row <- list("sigma2", NA_real_, NA_real_, "Combined", sigma(fit_comb_glm)^2)
+    df_sigma2 <- as.data.frame(row, stringsAsFactors = FALSE)
+    colnames(df_sigma2) <- colnames(df_combined)
+    df_combined <- rbind(df_combined, df_sigma2)
+    df_combined
 }

@@ -205,7 +205,7 @@ tidy_results <- function(param_seq, use_local_intercepts) {
     }
     df <- data.frame(t(params_seq_all))
     df$Method <- "BaySeq"
-    df <- df %>% pivot_longer(-Method, names_to = "Covariate", values_to = "Value")
+    df <- df %>% pivot_longer(-Method, names_to = "Covariate", values_to = "Estimate")
 
     params_seq$CI$Method <- "BaySeq"
     if (!("Covariate" %in% colnames(params_seq$CI)))
