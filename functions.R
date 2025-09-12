@@ -1,1 +1,191 @@
 library(metafor)
+
+bayes_lin_reg_stats <- function(mat, target, covariates, weights=NULL, k=0, n_centers=0) {
+
+    if (k == 0) {
+        # Homogeneous setting: 1 global intercept
+        mat["Intercept"] <- 1
+        intercept_colnames <- "Intercept"
+    } else if (k > 0 && n_centers > 0) {
+        # Heterogeneous setting: 1 intercept per local center
+        intercepts <- matrix(0, nrow(mat), n_centers)
+        intercepts[, k] <- 1
+        mat_new <- cbind(mat, intercepts)
+        intercept_colnames <- paste0("Intercept_", seq_len(ncol(intercepts)))
+        colnames(mat_new) <- c(colnames(mat), intercept_colnames)
+        mat <- mat_new
+    } else {
+        stop("k must be >= 0 and n_centers must be > 0 if k > 0")
+    }
+
+    x <- mat[, c(intercept_colnames, covariates)]
+
+    if (is.null(weights)) {
+        weights <- diag(1, dim(x))
+    }
+
+    y <- mat[[target]]
+    yy <- t(y) %*% weights %*% y
+
+    x <- t(t(x))
+    xx <- t(x) %*% weights %*% x
+
+    xy <- t(x) %*% weights %*% y
+
+    n <- nrow(mat)  # sample size
+
+    list("xx" = xx,
+        "xy" = xy,
+        "yy" = yy,
+        "n" = n)
+}
+
+bayes_lin_reg_post_params <- function(bayes_stats_list, prior_params) {
+
+    mu0 <- prior_params$mu0
+    lambda0 <- prior_params$lambda0
+    a0 <- prior_params$a0
+    b0 <- prior_params$b0
+
+    sum_xx <- Reduce("+", lapply(bayes_stats_list, function(x) x$xx))
+    sum_xy <- Reduce("+", lapply(bayes_stats_list, function(x) x$xy))
+    sum_yy <- Reduce("+", lapply(bayes_stats_list, function(x) x$yy))
+    sum_n <- Reduce("+", lapply(bayes_stats_list, function(x) x$n))
+
+    lambda_l <- lambda0 + sum_xx
+    mu_l <- solve(lambda_l) %*% (lambda0 %*% mu0 + sum_xy)
+    a_l <- a0 + sum_n / 2
+    b_l <- b0 + 0.5 * sum_yy + 0.5 * (t(mu0) %*% lambda0 %*% mu0 - t(mu_l) %*% lambda_l %*% mu_l)
+
+    list("lambda_l" = lambda_l,
+        "mu_l" = mu_l,
+        "a_l" = a_l,
+        "b_l" = b_l
+    )
+}
+
+bayes_lin_reg_post_map <- function(bayes_post_params) {
+    beta_l <- bayes_post_params$mu_l
+    a_l <- bayes_post_params$a_l
+    b_l <- bayes_post_params$b_l
+    lambda_l <- bayes_post_params$lambda_l
+    stopifnot(a_l > 0.5 && b_l != 0)
+    tau_l <- as.numeric((a_l - 0.5) / b_l)
+    sigma_l <- solve(tau_l * lambda_l)
+    list("beta_l" = beta_l, "sigma_l" = sigma_l)
+}
+
+get_linreg_prior <- function(covariates, use_local_intercepts, n_centers, epsilon=1e-10) {
+    if (use_local_intercepts) {
+        prior_params <- list("mu0" = as.matrix(rep(0, length(covariates) + n_centers)),
+                "lambda0" = epsilon * diag(length(covariates) + n_centers),
+                "a0" = epsilon,
+                "b0" = epsilon
+                )
+    } else {
+        prior_params <- list("mu0" = as.matrix(rep(0, length(covariates) + 1)),
+                "lambda0" = epsilon * diag(length(covariates) + 1),
+                "a0" = epsilon,
+                "b0" = epsilon
+                )
+    }
+    prior_params
+}
+
+bayseq_oneshot <- function(bstats, n_centers, use_local_intercepts,
+                            covariates, epsilon=1e-10, center_name=NULL) {
+    params_seq <- list()
+    did_calculate_glm <- bstats[[1]]$did_calculate_glm
+
+    if (did_calculate_glm) {
+        print("Normal model known variance")
+
+        update_normal_known_variance <- function(beta, sigma) {
+            sigma_post <- solve(Reduce(`+`, lapply(sigma, solve)))
+            beta_post <- sigma_post %*% Reduce(`+`, Map(function(s, b) solve(s) %*% b, sigma, beta))
+            list("sigma" = sigma_post, "beta" = beta_post)
+        }
+        beta <- lapply(bstats, function(x) unlist(unname(x["beta"])))
+        sigma <- lapply(bstats, function(x) x[["sigma"]])
+        updated_params <- update_normal_known_variance(beta, sigma)
+        params_seq$sigma <- updated_params$sigma
+        params_seq$beta <- updated_params$beta
+
+    } else {
+        print("Bayesian linear regression")
+        stopifnot(!is.null(center_name))
+        covariates_local <- covariates[covariates != center_name]
+        prior_params <- get_linreg_prior(covariates_local, use_local_intercepts, n_centers, epsilon=epsilon)
+
+        print(covariates_local)
+
+        bayes_post_params <- bayes_lin_reg_post_params(bstats, prior_params)
+        bayes_map <- bayes_lin_reg_post_map(bayes_post_params)
+        params_seq$beta <- bayes_map$beta_l
+        params_seq$sigma <- bayes_map$sigma_l
+        disp <- as.numeric(bayes_post_params$b_l / (bayes_post_params$a_l - 0.5))
+        n <- nrow(data)
+        if (use_local_intercepts) {
+            params_seq$dispersion <- n * disp / (n - length(covariates) - n_centers + 1)
+        } else {
+            params_seq$dispersion <- n * disp / (n - length(covariates))
+        }
+    }
+
+    params_seq$CI <- get_bayes_linreg_ci(params_seq)
+    params_seq
+}
+
+get_bayes_linreg_ci <- function(params_seq, alpha=0.05) {
+    z <- qnorm(1 - alpha / 2)  # ≈ 1.96 for 95% CI
+
+    lower <- params_seq$beta - z * sqrt(diag(params_seq$sigma))
+    upper <- params_seq$beta + z * sqrt(diag(params_seq$sigma))
+
+    ci <- data.frame(
+    lower = lower,
+    upper = upper
+    )
+    ci
+}
+
+bayseq_prepare <- function(target, covariates, model, data_split, n_centers, use_local_intercepts, center_name=NULL) {
+
+    bstats <- vector("list", n_centers)
+    did_calculate_glm <- FALSE
+    n_centers <- n_centers
+
+    for (i in seq_along(data_split)) {
+
+        # For GLM regression, we locally compute GLM parameters
+
+        if (family != "gaussian") {
+
+            if (use_local_intercepts) {
+                stop("Not yet implemented")
+            } else {
+                res <- glm(model, family, data_split[[i]])
+                bstats[[i]] <- list("beta" = res$coefficients, "sigma" = vcov(res))
+            }
+            did_calculate_glm <- TRUE
+
+        # For Bayesian linear regression, we locally compute sufficient statistics
+
+        } else if (family == "gaussian") {
+            mat <- data_split[[i]]
+
+            if (use_local_intercepts) {
+                stopifnot(!is.null(center_name))
+                covariates_local <- covariates[covariates != center_name]
+                bstats[[i]] <- bayes_lin_reg_stats(mat, target, covariates_local, k=i, n_centers=n_centers)
+            } else {
+                bstats[[i]] <- bayes_lin_reg_stats(mat, target, covariates)
+            }
+
+        } else {
+            stop(paste0("Invalid family:", family))
+        }
+        bstats[[i]]$did_calculate_glm <- did_calculate_glm
+    }
+    bstats
+}
