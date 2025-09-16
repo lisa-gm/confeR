@@ -121,7 +121,15 @@ fit_combined_glm <- function(model, model_no_int, use_local_intercepts, center_n
 
     # Add dispersion
     if (family == "gaussian") {
-        row <- list("sigma2", NA_real_, NA_real_, "Combined", sigma(fit_comb_glm)^2)
+        df_resid <- fit_comb_glm$df.residual
+        sigma2 <- sigma(fit_comb_glm)^2
+        alpha <- 0.05
+
+        # https://www.graphpad.com/support/faq/the-confidence-interval-of-a-standard-deviation/
+        lower <- sigma2 * (df_resid) / qchisq(1 - alpha / 2, df = df_resid)
+        upper <- sigma2 * (df_resid) / qchisq(alpha / 2, df = df_resid)
+
+        row <- list("sigma2", lower, upper, "Combined", sigma(fit_comb_glm)^2)
         df_sigma2 <- as.data.frame(row, stringsAsFactors = FALSE)
         colnames(df_sigma2) <- colnames(df_combined)
         df_combined <- rbind(df_combined, df_sigma2)

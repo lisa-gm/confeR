@@ -1,5 +1,45 @@
 library(dplyr)
 library(tidyr)
+library(invgamma)
+
+# Pre-processing wrapper for BaySeq methods
+bayseq_prepare <- function(target, covariates, Method, data_split, n_centers, use_local_intercepts, center_name=NULL) {
+
+    bstats <- vector("list", n_centers)
+    n_centers <- n_centers
+
+    for (i in seq_along(data_split)) {
+
+        # For GLM regression, we locally compute GLM parameters
+
+        if (family != "gaussian") {
+
+            if (use_local_intercepts) {
+                stop("Not yet implemented")
+            } else {
+                res <- glm(Method, family, data_split[[i]])
+                bstats[[i]] <- list("beta" = res$coefficients, "sigma" = vcov(res))
+            }
+
+        # For Bayesian linear regression, we locally compute sufficient statistics
+
+        } else if (family == "gaussian") {
+            mat <- data_split[[i]]
+
+            if (use_local_intercepts) {
+                stopifnot(!is.null(center_name))
+                covariates_local <- covariates[covariates != center_name]
+                bstats[[i]] <- bayes_lin_reg_stats(mat, target, covariates_local, k=i, n_centers=n_centers)
+            } else {
+                bstats[[i]] <- bayes_lin_reg_stats(mat, target, covariates)
+            }
+
+        } else {
+            stop(paste0("Invalid family:", family))
+        }
+    }
+    bstats
+}
 
 # Compute summary statistics for Bayesian linear regression
 bayes_lin_reg_stats <- function(mat, target, covariates, weights=NULL, k=0, n_centers=0) {
@@ -98,12 +138,11 @@ get_linreg_prior <- function(covariates, use_local_intercepts, n_centers, epsilo
 }
 
 # Compute BaySeq parameters using one-shot approach
-bayseq_oneshot <- function(bstats, n_centers, use_local_intercepts,
+bayseq_oneshot <- function(bstats, n_centers, use_local_intercepts, family,
                             covariates, epsilon=1e-10, center_name=NULL) {
     params_seq <- list()
-    did_calculate_glm <- bstats[[1]]$did_calculate_glm
 
-    if (did_calculate_glm) {
+    if (family != "gaussian") {
         print("Normal Method known variance")
 
         update_normal_known_variance <- function(beta, sigma) {
@@ -141,7 +180,7 @@ bayseq_oneshot <- function(bstats, n_centers, use_local_intercepts,
 
         # mode of marginal inverse-gamma
         disp <- as.numeric(bayes_post_params$b_l / (bayes_post_params$a_l + 1))
-
+        disp_ci <- qinvgamma(c(0.025, 0.975), shape = bayes_post_params$a_l, scale = 1 / bayes_post_params$b_l)
         params_seq$dispersion <- disp
 
         # inverse of mode of joint normal-gamma, with correction factor
@@ -155,63 +194,27 @@ bayseq_oneshot <- function(bstats, n_centers, use_local_intercepts,
     }
 
     params_seq$CI <- get_bayes_linreg_ci(params_seq)
+
+    if (family == "gaussian") {
+        new_row <- data.frame(disp_ci[[1]], disp_ci[[2]], row.names = "sigma2")
+        colnames(new_row) <- colnames(params_seq$CI)
+        params_seq$CI <- rbind(params_seq$CI, new_row)
+    }
     params_seq
 }
 
 # Compute credible intervals for Bayesian linear regression
 get_bayes_linreg_ci <- function(params_seq, alpha=0.05) {
-    z <- qnorm(1 - alpha / 2)  # ≈ 1.96 for 95% CI
 
+    # normal
+    z <- qnorm(1 - alpha / 2)  # ≈ 1.96 for 95% CI
     lower <- params_seq$beta - z * sqrt(diag(params_seq$sigma))
     upper <- params_seq$beta + z * sqrt(diag(params_seq$sigma))
-
     ci <- data.frame(
-    lower = lower,
-    upper = upper
+        lower = lower,
+        upper = upper
     )
     ci
-}
-
-# Pre-processing wrapper for BaySeq methods
-bayseq_prepare <- function(target, covariates, Method, data_split, n_centers, use_local_intercepts, center_name=NULL) {
-
-    bstats <- vector("list", n_centers)
-    did_calculate_glm <- FALSE
-    n_centers <- n_centers
-
-    for (i in seq_along(data_split)) {
-
-        # For GLM regression, we locally compute GLM parameters
-
-        if (family != "gaussian") {
-
-            if (use_local_intercepts) {
-                stop("Not yet implemented")
-            } else {
-                res <- glm(Method, family, data_split[[i]])
-                bstats[[i]] <- list("beta" = res$coefficients, "sigma" = vcov(res))
-            }
-            did_calculate_glm <- TRUE
-
-        # For Bayesian linear regression, we locally compute sufficient statistics
-
-        } else if (family == "gaussian") {
-            mat <- data_split[[i]]
-
-            if (use_local_intercepts) {
-                stopifnot(!is.null(center_name))
-                covariates_local <- covariates[covariates != center_name]
-                bstats[[i]] <- bayes_lin_reg_stats(mat, target, covariates_local, k=i, n_centers=n_centers)
-            } else {
-                bstats[[i]] <- bayes_lin_reg_stats(mat, target, covariates)
-            }
-
-        } else {
-            stop(paste0("Invalid family:", family))
-        }
-        bstats[[i]]$did_calculate_glm <- did_calculate_glm
-    }
-    bstats
 }
 
 tidy_results <- function(param_seq, use_local_intercepts) {
