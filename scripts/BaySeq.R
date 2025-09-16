@@ -129,13 +129,29 @@ bayseq_oneshot <- function(bstats, n_centers, use_local_intercepts,
         bayes_map <- bayes_lin_reg_post_map(bayes_post_params)
         params_seq$beta <- bayes_map$beta_l
         params_seq$sigma <- bayes_map$sigma_l
-        disp <- as.numeric(bayes_post_params$b_l / (bayes_post_params$a_l - 0.5))
-        n <- nrow(data)
+
         if (use_local_intercepts) {
-            params_seq$dispersion <- n * disp / (n - length(covariates) - n_centers + 1)
+            p <- length(covariates) + n_centers
         } else {
-            params_seq$dispersion <- n * disp / (n - length(covariates))
+            p <- length(covariates)
         }
+
+        # mode of joint normal-inverse-gamma
+        # disp <- as.numeric(bayes_post_params$b_l / (bayes_post_params$a_l + 1 + p/2))
+
+        # mode of marginal inverse-gamma
+        disp <- as.numeric(bayes_post_params$b_l / (bayes_post_params$a_l + 1))
+
+        params_seq$dispersion <- disp
+
+        # inverse of mode of joint normal-gamma, with correction factor
+        # disp <- as.numeric(bayes_post_params$b_l / (bayes_post_params$a_l - 0.5))
+        # n <- nrow(data)
+        # if (use_local_intercepts) {
+        #     params_seq$dispersion <- n * disp / (n - length(covariates) - n_centers + 1)
+        # } else {
+        #     params_seq$dispersion <- n * disp / (n - length(covariates))
+        # }
     }
 
     params_seq$CI <- get_bayes_linreg_ci(params_seq)
@@ -203,7 +219,7 @@ tidy_results <- function(param_seq, use_local_intercepts) {
     if (use_local_intercepts) {
         params_seq_all <- params_seq_all[!grepl("Intercept_\\d+$", rownames(params_seq_all)), , drop=FALSE]
     }
-    df <- data.frame(t(params_seq_all))
+    df <- data.frame(t(params_seq_all), check.names = FALSE)  # prevent renaming (Intercept) to X.Intercept.
     df$Method <- "BaySeq"
     df <- df %>% pivot_longer(-Method, names_to = "Covariate", values_to = "Estimate")
 

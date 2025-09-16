@@ -2,13 +2,14 @@ library(metafor)
 library(Matrix)
 library(BFI)
 
-### Meta ###
+### Local fits ###
 
 fit_local_glms <- function(data_split, Method, target, covariates, center_name) {
 
     coef_list <- list()
     se_list <- list()
     cov_list <- list()
+    sigma2_list <- list()
     covariates_local <- covariates[covariates != center_name]
 
     for (i in seq_along(data_split)) {
@@ -18,13 +19,17 @@ fit_local_glms <- function(data_split, Method, target, covariates, center_name) 
         coef_list[[i]] <- coef_summary[, "Estimate"]
         se_list[[i]] <- coef_summary[, "Std. Error"]
         cov_list[[i]] <- vcov(sub_fit)
+        sigma2_list[[i]] <- sigma(sub_fit)^2
     }
 
     list("coef_list" = coef_list,
         "se_list" = se_list,
-        "cov_list" = cov_list
+        "cov_list" = cov_list,
+        "sigma2_list" = as.numeric(sigma2_list)
     )
 }
+
+### Meta-analysis ###
 
 fit_mv_meta_fixed <- function(coef_list, cov_list) {
 
@@ -33,7 +38,7 @@ fit_mv_meta_fixed <- function(coef_list, cov_list) {
     names_y <- names(y)
 
     # Create block-diagonal covariance matrix
-    V <- bdiag(cov_list)  # from Matrix package
+    V <- Matrix::bdiag(cov_list)
     V <- as.matrix(V)
 
     # Design matrix X (maps each coefficient to its covariate)
@@ -64,7 +69,7 @@ fit_mv_meta_random <- function(coef_list, cov_list, method="REML") {
     names_y <- names(y)
 
     # Create block-diagonal covariance matrix
-    V <- bdiag(cov_list)  # from Matrix package
+    V <- Matrix::bdiag(cov_list)
     V <- as.matrix(V)
 
     # Design matrix X (maps each coefficient to its covariate)
@@ -87,7 +92,7 @@ fit_mv_meta_random <- function(coef_list, cov_list, method="REML") {
     results_meta_mv
 }
 
-### Combined ###
+### Combined fit ###
 
 fit_combined_glm <- function(model, model_no_int, use_local_intercepts, center_name) {
     if (use_local_intercepts) {
@@ -115,17 +120,19 @@ fit_combined_glm <- function(model, model_no_int, use_local_intercepts, center_n
     df_combined$Estimate <- as.data.frame(coefs)$Estimate
 
     # Add dispersion
-    row <- list("sigma2", NA_real_, NA_real_, "Combined", sigma(fit_comb_glm)^2)
-    df_sigma2 <- as.data.frame(row, stringsAsFactors = FALSE)
-    colnames(df_sigma2) <- colnames(df_combined)
-    df_combined <- rbind(df_combined, df_sigma2)
+    if (family == "gaussian") {
+        row <- list("sigma2", NA_real_, NA_real_, "Combined", sigma(fit_comb_glm)^2)
+        df_sigma2 <- as.data.frame(row, stringsAsFactors = FALSE)
+        colnames(df_sigma2) <- colnames(df_combined)
+        df_combined <- rbind(df_combined, df_sigma2)
+    }
     df_combined
 }
 
 ### BFI ###
 
 bfi_sub <- function(data_split, family, target, covariates, center_name) {
-    
+
     covariates_local <- covariates[covariates != center_name]
     sub_X <- vector("list", length(data_split))
     sub_Lambda <- vector("list", length(data_split))
@@ -146,7 +153,7 @@ bfi_sub <- function(data_split, family, target, covariates, center_name) {
     list("sub_X" = sub_X, "sub_Lambda" = sub_Lambda, "sub_fit_bfi" = sub_fit_bfi)
 }
 
-bfi_fit <- function(data_split, family, res_bfi_sub, use_local_intercepts) {
+fit_bfi <- function(data_split, family, res_bfi_sub, use_local_intercepts) {
 
     if (family == "bernoulli") family <- "binomial"
 
@@ -168,17 +175,18 @@ bfi_fit <- function(data_split, family, res_bfi_sub, use_local_intercepts) {
         Lambda_com <- inv.prior.cov(sub_X[[1]], lambda=0.01, L=length(data_split),
                             family=family, stratified=TRUE, strat_par=1)
         priors_all <- append(priors, list(Lambda_com))
-        BFI_fit <- bfi(theta_hats=thetahats, A_hats=Ahats, Lambda=priors_all, family=family, stratified=TRUE, strat_par=1)
+        BFI_fit <- bfi(theta_hats=thetahats, A_hats=Ahats, Lambda=priors_all,
+                        family=family, stratified=TRUE, strat_par=1)
     } else {
         Lambda_com <- inv.prior.cov(sub_X[[1]], lambda=0.01, L=length(data_split), family=family)
         priors_all <- append(priors, list(Lambda_com))
         BFI_fit <- bfi(theta_hats=thetahats, A_hats=Ahats, Lambda=priors_all, family=family)
     }
 
-    tidy_bfi_fit(BFI_fit)
+    tidy_bfi_fit(BFI_fit, use_local_intercepts, family)
 }
 
-tidy_bfi_fit <- function(BFI_fit) {
+tidy_bfi_fit <- function(BFI_fit, use_local_intercepts, family) {
     df_bfi <- as.data.frame(summary(BFI_fit)$CI)
     rownames(df_bfi) <- sub("^\\(Intercept\\)_loc(\\d+)$", "Intercept_\\1", rownames(df_bfi))
     colnames(df_bfi)[colnames(df_bfi) == "2.5 %"] <- "lower"
@@ -187,13 +195,24 @@ tidy_bfi_fit <- function(BFI_fit) {
     df_bfi$Method <- "BFI"
     df_bfi$Covariate <- rownames(df_bfi)
     rownames(df_bfi) <- NULL
-    df_bfi$Estimate <- BFI_fit$theta_hat[-length(BFI_fit$theta_hat)]
 
     # add dispersion
-    row <- list(NA_real_, NA_real_, "BFI", "sigma2", BFI_fit$theta_hat[["sigma2"]])
-    df_sigma2 <- as.data.frame(row, stringsAsFactors = FALSE)
-    colnames(df_sigma2) <- colnames(df_bfi)
-    df_bfi <- rbind(df_bfi, df_sigma2)
+    if (family == "gaussian") {
+
+        df_bfi$Estimate <- BFI_fit$theta_hat[-length(BFI_fit$theta_hat)]
+
+        if (use_local_intercepts) {
+            sigma2 <- BFI_fit$theta_hat[["sigma2"]]
+        } else {
+            sigma2 <- as.data.frame(BFI_fit$theta_hat)$sigma2
+        }
+        row <- list(NA_real_, NA_real_, "BFI", "sigma2", sigma2)
+        df_sigma2 <- as.data.frame(row, stringsAsFactors = FALSE)
+        colnames(df_sigma2) <- colnames(df_bfi)
+        df_bfi <- rbind(df_bfi, df_sigma2)
+    } else {
+        df_bfi$Estimate <- t(BFI_fit$theta_hat)
+    }
 
     df_bfi
 }
