@@ -161,7 +161,7 @@ bfi_sub <- function(data_split, family, target, covariates, center_name) {
     list("sub_X" = sub_X, "sub_Lambda" = sub_Lambda, "sub_fit_bfi" = sub_fit_bfi)
 }
 
-fit_bfi <- function(data_split, family, res_bfi_sub, use_local_intercepts) {
+fit_bfi <- function(data_split, family, res_bfi_sub, use_local_intercepts, return_fit = FALSE) {
 
     if (family == "bernoulli") family <- "binomial"
 
@@ -190,6 +190,8 @@ fit_bfi <- function(data_split, family, res_bfi_sub, use_local_intercepts) {
         priors_all <- append(priors, list(Lambda_com))
         BFI_fit <- bfi(theta_hats=thetahats, A_hats=Ahats, Lambda=priors_all, family=family)
     }
+
+    if (return_fit) return(return_fit)
 
     tidy_bfi_fit(BFI_fit, use_local_intercepts, family)
 }
