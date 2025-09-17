@@ -175,17 +175,17 @@ bayseq_oneshot <- function(bstats, n_centers, use_local_intercepts, family,
             p <- length(covariates)
         }
 
-        # mode of joint normal-inverse-gamma
+        # joint mode normal-inverse-gamma
         # disp <- as.numeric(bayes_post_params$b_l / (bayes_post_params$a_l + 1 + p/2))
+
+        # joint mode of normal-gamma
+        #disp <- as.numeric(bayes_post_params$b_l / (bayes_post_params$a_l + p/2 - 1))
 
         # mode of marginal inverse-gamma
         #disp <- as.numeric(bayes_post_params$b_l / (bayes_post_params$a_l + 1))
 
         # this is mathematically identical to sigma2 from lm
         disp <- as.numeric(bayes_post_params$b_l / (bayes_post_params$a_l - p/2))
-
-        # inverse of mode of joint normal-gamma, with correction factor
-        # disp <- as.numeric(bayes_post_params$b_l / (bayes_post_params$a_l - 0.5))
 
         disp_ci <- qinvgamma(c(0.025, 0.975), shape = bayes_post_params$a_l, scale = 1 / bayes_post_params$b_l)
         params_seq$dispersion <- disp
