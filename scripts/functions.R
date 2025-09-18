@@ -94,7 +94,7 @@ fit_mv_meta_random <- function(coef_list, cov_list, method="REML") {
 
 ### Combined fit ###
 
-fit_combined_glm <- function(model, model_no_int, use_local_intercepts, center_name) {
+fit_combined_glm <- function(model, model_no_int, use_local_intercepts, center_name, return_fit=FALSE) {
     if (use_local_intercepts) {
         # Controlled for local center
         m_expanded <- update(model_no_int, as.formula(paste("~ . +", center_name)))
@@ -103,6 +103,8 @@ fit_combined_glm <- function(model, model_no_int, use_local_intercepts, center_n
         fit_comb_glm <- glm(model, family, data)
     }
 
+    if (return_fit) return(fit_comb_glm)
+    
     sum_fit <- summary(fit_comb_glm)
     coefs <- sum_fit$coefficients
     rownames(coefs) <- sub(paste0("^", center_name), "Intercept_", rownames(coefs))
