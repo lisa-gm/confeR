@@ -108,15 +108,15 @@ bayes_lin_reg_post_params <- function(bayes_stats_list, prior_params) {
 }
 
 # Compute maximum a posteriori estimates for Bayesian linear regression
-bayes_lin_reg_post_map <- function(bayes_post_params) {
+bayes_lin_reg_post_map <- function(bayes_post_params, p) {
     beta_l <- bayes_post_params$mu_l
     a_l <- bayes_post_params$a_l
     b_l <- bayes_post_params$b_l
     lambda_l <- bayes_post_params$lambda_l
-    stopifnot(a_l > 0.5 && b_l != 0)
-    tau_l <- as.numeric((a_l - 0.5) / b_l)
+    stopifnot(a_l > p/2 && b_l != 0)
+    tau_l <- as.numeric((a_l - p/2) / b_l)
     sigma_l <- solve(tau_l * lambda_l)
-    list("beta_l" = beta_l, "sigma_l" = sigma_l)
+    list("beta_l" = beta_l, "sigma_l" = sigma_l, "lambda_l"=lambda_l)
 }
 
 # Define prior for Bayesian linear regression
@@ -139,7 +139,7 @@ get_linreg_prior <- function(covariates, use_local_intercepts, n_centers, epsilo
 
 # Compute BaySeq parameters using one-shot approach
 bayseq_oneshot <- function(bstats, n_centers, use_local_intercepts, family,
-                            covariates, epsilon=1e-10, center_name=NULL) {
+                            covariates, epsilon=1e-10, center_name=NULL, CI="t") {
     params_seq <- list()
 
     if (family != "gaussian") {
@@ -162,18 +162,21 @@ bayseq_oneshot <- function(bstats, n_centers, use_local_intercepts, family,
         covariates_local <- covariates[covariates != center_name]
         prior_params <- get_linreg_prior(covariates_local, use_local_intercepts, n_centers, epsilon=epsilon)
 
-        print(covariates_local)
-
-        bayes_post_params <- bayes_lin_reg_post_params(bstats, prior_params)
-        bayes_map <- bayes_lin_reg_post_map(bayes_post_params)
-        params_seq$beta <- bayes_map$beta_l
-        params_seq$sigma <- bayes_map$sigma_l
-
         if (use_local_intercepts) {
             p <- length(covariates) + n_centers
         } else {
             p <- length(covariates)
         }
+
+        bayes_post_params <- bayes_lin_reg_post_params(bstats, prior_params)
+        bayes_map <- bayes_lin_reg_post_map(bayes_post_params, p)
+        params_seq$beta <- bayes_map$beta_l
+        params_seq$sigma <- bayes_map$sigma_l
+        params_seq$a_l <- bayes_post_params$a_l
+        params_seq$b_l <- bayes_post_params$b_l
+        params_seq$lambda_l <- bayes_map$lambda_l
+
+
 
         # joint mode normal-inverse-gamma
         # disp <- as.numeric(bayes_post_params$b_l / (bayes_post_params$a_l + 1 + p/2))
@@ -191,7 +194,11 @@ bayseq_oneshot <- function(bstats, n_centers, use_local_intercepts, family,
         params_seq$dispersion <- disp
     }
 
-    params_seq$CI <- get_bayes_linreg_ci(params_seq)
+    if (CI == "t") {
+        params_seq$CI <- get_bayes_linreg_ci_t(params_seq)
+    } else if (CI == "normal") {
+        params_seq$CI <- get_bayes_linreg_ci_normal(params_seq)
+    }
 
     if (family == "gaussian") {
         new_row <- data.frame(disp_ci[[1]], disp_ci[[2]], row.names = "sigma2")
@@ -202,7 +209,7 @@ bayseq_oneshot <- function(bstats, n_centers, use_local_intercepts, family,
 }
 
 # Compute credible intervals for Bayesian linear regression
-get_bayes_linreg_ci <- function(params_seq, alpha=0.05) {
+get_bayes_linreg_ci_normal <- function(params_seq, alpha=0.05) {
 
     # normal
     z <- qnorm(1 - alpha / 2)  # ≈ 1.96 for 95% CI
@@ -214,6 +221,31 @@ get_bayes_linreg_ci <- function(params_seq, alpha=0.05) {
     )
     ci
 }
+
+# Use marginal t-distributions for CI
+get_bayes_linreg_ci_t <- function(params_seq, alpha=0.05) {
+    mu <- params_seq$beta
+    a <- as.vector(params_seq$a_l)
+    b <- as.vector(params_seq$b_l)
+    lambda_diag <- diag(params_seq$lambda_l)
+
+    # Degrees of freedom
+    nu <- 2 * a
+
+    scale <- (lambda_diag * a) / b
+    variance <- (1/scale) * nu / (nu-2)
+    stdev <- sqrt(variance)
+
+    t_crit <- qt(1-alpha/2, df = nu)
+    lower <- mu - t_crit * stdev
+    upper <- mu + t_crit * stdev
+
+    data.frame(
+        lower = lower,
+        upper = upper
+    )
+}
+
 
 tidy_results <- function(param_seq, use_local_intercepts) {
     params_seq_all <- rbind(params_seq$beta, sigma2 = params_seq$dispersion)
