@@ -121,16 +121,23 @@ bayes_lin_reg_post_map <- function(bayes_post_params, p) {
 
 # Define prior for Bayesian linear regression
 get_linreg_prior <- function(covariates, use_local_intercepts, n_centers, epsilon=1e-10) {
+
+    if (use_local_intercepts) {
+        p <- length(covariates) + n_centers
+    } else {
+        p <- length(covariates)
+    }
+
     if (use_local_intercepts) {
         prior_params <- list("mu0" = as.matrix(rep(0, length(covariates) + n_centers)),
                 "lambda0" = epsilon * diag(length(covariates) + n_centers),
-                "a0" = epsilon,
+                "a0" = epsilon -p/2,
                 "b0" = epsilon
                 )
     } else {
         prior_params <- list("mu0" = as.matrix(rep(0, length(covariates) + 1)),
                 "lambda0" = epsilon * diag(length(covariates) + 1),
-                "a0" = epsilon,
+                "a0" = epsilon -p/2,
                 "b0" = epsilon
                 )
     }
@@ -176,22 +183,9 @@ bayseq_oneshot <- function(bstats, n_centers, use_local_intercepts, family,
         params_seq$b_l <- bayes_post_params$b_l
         params_seq$lambda_l <- bayes_map$lambda_l
 
-
-
-        # joint mode normal-inverse-gamma
-        # disp <- as.numeric(bayes_post_params$b_l / (bayes_post_params$a_l + 1 + p/2))
-
-        # joint mode of normal-gamma
-        #disp <- as.numeric(bayes_post_params$b_l / (bayes_post_params$a_l + p/2 - 1))
-
-        # mode of marginal inverse-gamma
-        #disp <- as.numeric(bayes_post_params$b_l / (bayes_post_params$a_l + 1))
-
-        # this is mathematically identical to sigma2 from lm
-        disp <- as.numeric(bayes_post_params$b_l / (bayes_post_params$a_l - p/2))
-
-        disp_ci <- qinvgamma(c(0.025, 0.975), shape = bayes_post_params$a_l, scale = 1 / bayes_post_params$b_l)
-        params_seq$dispersion <- disp
+        # use inverse of mean to get equivalent sigma2 to lm
+        params_seq$dispersion <- as.numeric(bayes_post_params$b_l / (bayes_post_params$a_l))
+        disp_ci <- qinvgamma(c(0.025, 0.975), shape = bayes_post_params$a_l, rate = bayes_post_params$b_l)
     }
 
     if (CI == "t") {
