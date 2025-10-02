@@ -113,8 +113,7 @@ bayes_lin_reg_post_map <- function(bayes_post_params, p) {
     a_l <- bayes_post_params$a_l
     b_l <- bayes_post_params$b_l
     lambda_l <- bayes_post_params$lambda_l
-    stopifnot(a_l > p/2 && b_l != 0)
-    tau_l <- as.numeric((a_l - p/2) / b_l)
+    tau_l <- as.numeric(a_l / b_l)
     sigma_l <- solve(tau_l * lambda_l)
     list("beta_l" = beta_l, "sigma_l" = sigma_l, "lambda_l"=lambda_l)
 }
@@ -224,10 +223,10 @@ get_bayes_linreg_ci_t <- function(params_seq, alpha=0.05) {
     lambda_diag <- diag(params_seq$lambda_l)
 
     # Degrees of freedom
-    nu <- 2 * a
+    nu <- 2 * a  # == n - m
 
     scale <- (lambda_diag * a) / b
-    variance <- (1/scale) * nu / (nu-2)
+    variance <- (1/scale) * nu / (nu-2) # B-S p. 435
     stdev <- sqrt(variance)
 
     t_crit <- qt(1-alpha/2, df = nu)
@@ -247,10 +246,10 @@ tidy_results <- function(param_seq, use_local_intercepts) {
         params_seq_all <- params_seq_all[!grepl("Intercept_\\d+$", rownames(params_seq_all)), , drop=FALSE]
     }
     df <- data.frame(t(params_seq_all), check.names = FALSE)  # prevent renaming (Intercept) to X.Intercept.
-    df$Method <- "BaySeq"
+    df$Method <- "BCA"
     df <- df %>% pivot_longer(-Method, names_to = "Covariate", values_to = "Estimate")
 
-    params_seq$CI$Method <- "BaySeq"
+    params_seq$CI$Method <- "BCA"
     if (!("Covariate" %in% colnames(params_seq$CI)))
         params_seq$CI <- tibble::rownames_to_column(params_seq$CI, var = "Covariate")
 

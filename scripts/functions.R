@@ -104,7 +104,7 @@ fit_combined_glm <- function(model, model_no_int, use_local_intercepts, center_n
     }
 
     if (return_fit) return(fit_comb_glm)
-    
+
     sum_fit <- summary(fit_comb_glm)
     coefs <- sum_fit$coefficients
     rownames(coefs) <- sub(paste0("^", center_name), "Intercept_", rownames(coefs))
