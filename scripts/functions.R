@@ -13,7 +13,8 @@ fit_local_glms <- function(data_split, Method, target, covariates, center_name) 
     covariates_local <- covariates[covariates != center_name]
 
     for (i in seq_along(data_split)) {
-        sub_x <- data[data[[center_name]] == i, c(target, covariates_local)]
+        l <- levels(data[[center_name]])[i]
+        sub_x <- data[data[[center_name]] == l, c(target, covariates_local)]
         sub_fit <- glm(Method, family=family, data=sub_x)
         coef_summary <- summary(sub_fit)$coefficients
         coef_list[[i]] <- coef_summary[, "Estimate"]
@@ -151,12 +152,13 @@ bfi_sub <- function(data_split, family, target, covariates, center_name) {
     if (family == "bernoulli") family <- "binomial"
 
     for (i in seq_along(data_split)) {
+        l <- levels(data[[center_name]])[i]
 
-        sub_X[[i]] <- as.data.frame(subset(data, data[[center_name]] == i, select = covariates_local))
+        sub_X[[i]] <- as.data.frame(subset(data, data[[center_name]] == l, select = covariates_local))
 
         sub_Lambda[[i]] <- inv.prior.cov(sub_X[[i]], lambda = 0.01,
                             L = length(data_split), family = family) # “gaussian”, “binomial”, “survival”
-        sub_fit_bfi[[i]] <- MAP.estimation(y = data[[target]][data[[center_name]] == i], X = sub_X[[i]],
+        sub_fit_bfi[[i]] <- MAP.estimation(y = data[[target]][data[[center_name]] == l], X = sub_X[[i]],
                                 family = family, Lambda = sub_Lambda[[i]])
     }
 

@@ -145,7 +145,8 @@ get_linreg_prior <- function(covariates, use_local_intercepts, n_centers, epsilo
 
 # Compute BaySeq parameters using one-shot approach
 bayseq_oneshot <- function(bstats, n_centers, use_local_intercepts, family,
-                            covariates, epsilon=1e-10, center_name=NULL, CI="t") {
+                            covariates, epsilon=1e-10, center_name=NULL, CI="normal",
+                            return_post_params = FALSE) {
     params_seq <- list()
 
     if (family != "gaussian") {
@@ -185,6 +186,9 @@ bayseq_oneshot <- function(bstats, n_centers, use_local_intercepts, family,
         # use inverse of mean to get equivalent sigma2 to lm
         params_seq$dispersion <- as.numeric(bayes_post_params$b_l / (bayes_post_params$a_l))
         disp_ci <- qinvgamma(c(0.025, 0.975), shape = bayes_post_params$a_l, rate = bayes_post_params$b_l)
+
+        if (return_post_params)
+            params_seq$post_params <- bayes_post_params
     }
 
     if (CI == "t") {
@@ -198,6 +202,7 @@ bayseq_oneshot <- function(bstats, n_centers, use_local_intercepts, family,
         colnames(new_row) <- colnames(params_seq$CI)
         params_seq$CI <- rbind(params_seq$CI, new_row)
     }
+
     params_seq
 }
 
