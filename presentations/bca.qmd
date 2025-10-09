@@ -1,0 +1,148 @@
+---
+title: "Bayesian conjugate analysis for federated statistical inference"
+subtitle: "CRS Colloqium, 13 October 2025"
+author: "Peter Degen"
+format: 
+    revealjs:
+        theme: [custom.scss]
+        width: 1920
+        height: 1080
+        margin: 0.1
+        incremental: true 
+bibliography:
+  - BaySeq.bib
+---
+
+## Problem setting: generalized linear model (GLM)
+
+\
+
+$\mathrm{E}[\mathbf{y|\mathbf{X}}] = g^{-1}(\mathbf{X}\boldsymbol{\beta})$
+
+\
+
+We wish to estimate regression coefficients $\boldsymbol{\beta}$ from the data $(\mathbf{X}, \mathbf{y})$.
+
+## Federated inference
+
+:::: {.columns}
+
+::: {.column width="50%"}
+![](images/federated_inference.svg){width=85%}
+:::
+
+::: {.column width="50%"}
+
+::: {.fragment}
+### Motivation
+:::
+
+- Sharing of individual patient data (IPD) restricted due to regulatory constraints
+- Perform statistical inference using summary statistics
+
+::: {.fragment}
+### Practical considerations
+:::
+
+- **One-shot:** one round of communication
+  - Contrast to federated machine learning: iterative
+- **Parallel:** each center communicates independently
+
+::: {.fragment}
+### Methods
+:::
+
+- Multivariate meta-analysis
+- BFI: Bayesian Federated Inference [@jonker_bayesian_2024]
+- BCA: Bayesian Conjugate Analysis (Degen and Held)
+- Distributed MCMC (not shown)
+:::
+
+::::
+
+::: aside
+<a href="https://www.flaticon.com/free-stickers/hospital" title="hospital stickers">Hospital stickers created by kerismaker - Flaticon</a>
+:::
+
+## Bayesian federated inference (BFI)
+
+- Approximate $\boldsymbol{\beta}$ using second-order Taylor expansion centered around maximum aposteriori estimate
+
+## Bayesian conjugate analysis (BCA)
+
+\
+
+### Normal linear model (not GLM)
+
+\
+
+$\begin{align}
+    &\mathrm{Prior:} &p(\boldsymbol{\beta}, \tau | \boldsymbol{\beta}_0, \boldsymbol{\Lambda}_0, a_0, b_0) &= N(\boldsymbol{\beta} | \boldsymbol{\beta}_0, (\tau\boldsymbol{\Lambda}_0)^{-1})\times \operatorname{Gamma}(\tau|a_0, b_0)\\
+    &\mathrm{Posterior:} &p(\boldsymbol{\beta}, \tau | \mathbf{X}, \mathbf{y}) &= N(\boldsymbol{\beta} | \boldsymbol{\beta}_n, (\tau\boldsymbol{\Lambda}_n)^{-1})\times \operatorname{Gamma}(\tau|a_n, b_n),
+\end{align}$
+\
+\
+where the **Bayesian update formulas** are given by
+\
+\
+$\begin{align}
+    \boldsymbol{\beta}_n &= \boldsymbol{\Lambda}_n^{-1}(\boldsymbol{\Lambda}_0\boldsymbol{\beta}_0 + \mathbf{X}^{\top} \mathbf{y}) \\
+    \boldsymbol{\Lambda}_n &= \boldsymbol{\Lambda}_0 + \mathbf{X}^{\top}\mathbf{X} \\
+    a_n &= a_0 + n/2 \\
+    b_n &= b_0 + \frac{1}{2}(\mathbf{y}^{\top}\mathbf{y} + \boldsymbol{\beta}_0^{\top}\boldsymbol{\Lambda}_0\boldsymbol{\beta}_0- \boldsymbol{\beta}_n^{\top}\boldsymbol{\Lambda}_n\boldsymbol{\beta}_n).
+\end{align}$
+
+## BCA for federated inference (linear model)
+
+\
+
+Let's use a non-informative *reference prior* for center 1. Then, sequential application of the update formulas over all $L$ centers yields the following one-shot formulas:
+
+$\begin{align}
+    \boldsymbol{\beta}_L &= \boldsymbol{\Lambda}_L^{-1} (\sum_{l=1}^{L} \mathbf{X}_l^{\top}\mathbf{y}_l)\\
+    \boldsymbol{\Lambda}_L &= \sum_{l=1}^{L} \mathbf{X}_l^{\top}\mathbf{X}_l\\
+    a_{L} &= \frac{1}{2}\sum_{l=1}^{L}n_{l} - \frac{m}{2} = \frac{n-m}{2}\\
+    b_{L} &= \frac{1}{2}\sum_{l=1}^{L}\mathbf{y}_l^{\top}\mathbf{y}_l - \frac{1}{2}(\boldsymbol{\beta}_L^{\top}\boldsymbol{\Lambda}_L\boldsymbol{\beta}_L)
+\end{align}$
+
+## BCA for federated inference (linear model)
+\
+Maximum aposteriori estimator is equivalent to ordinary least squares on **combined data**:
+
+\begin{equation}
+\boldsymbol{\tilde{\beta}}_L = (\sum_{l=1}^{L} \mathbf{X}_l^{\top}\mathbf{X}_l)^{-1}( \sum_{l=1}^{L} \mathbf{X}_l^{\top}\mathbf{y}_l)
+= (\mathbf{X}^{\top}\mathbf{X})^{-1}(\mathbf{X}^{\top}\mathbf{y})
+= \boldsymbol{\hat{\beta}}_{Combined}
+\end{equation}
+
+![](images/collage.params.Nurses_local_int.png){width=80% fig-align="center"}
+
+::: {.fragment}
+<div style="
+  position: absolute;
+  bottom: 80px;
+  left: 46%;
+  transform: translateX(-50%);
+  width: 55px;
+  height: 160px;
+  border: 3px solid red;
+  border-radius: 50%;
+  background: none;
+"></div>
+
+<div style="text-align: center; color: red">
+"Nice agreement" (Jonker et al.)
+</div>
+:::
+
+## BCA for federated inference (GLM)
+\
+Maximum aposteriori estimator equivalent to **multivariate fixed-effect meta-analysis**:
+
+\begin{equation}
+\boldsymbol{\tilde{\beta}}_L = (\sum_{l=1}^L\boldsymbol{\hat{\Lambda}_l})^{-1}\sum_{l=1}^L\boldsymbol{\hat{\Lambda}_l}\boldsymbol{\hat{\beta}_l}
+\end{equation}
+
+![](images/collage.params.trauma_shuffled.png){width=80% fig-align="center"}
+
+## Bibliography

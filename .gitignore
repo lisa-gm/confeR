@@ -2,8 +2,9 @@
 /figures_tmp
 *_files
 .lintr
-/.quarto/
+*.quarto/
 _site/
 .Rprofile
 /untracked
 .vscode
+presentations/images
