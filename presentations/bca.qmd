@@ -92,18 +92,27 @@ $\begin{align}
     b_n &= b_0 + \frac{1}{2}(\mathbf{y}^{\top}\mathbf{y} + \boldsymbol{\beta}_0^{\top}\boldsymbol{\Lambda}_0\boldsymbol{\beta}_0- \boldsymbol{\beta}_n^{\top}\boldsymbol{\Lambda}_n\boldsymbol{\beta}_n).
 \end{align}$
 
+## Sequential application of update formulas
+\
+Posterior center $l$ = Prior center $l+1$
+
+![](images/seq.png){fig-align="center"}
+
 ## BCA for federated inference (linear model)
 
 \
 
-Let's use a non-informative *reference prior* for center 1. Then, sequential application of the update formulas over all $L$ centers yields the following one-shot formulas:
+Sequential application of the update formulas over all $L$ centers yields **parallelized one-shot** formulas:
 
 $\begin{align}
     \boldsymbol{\beta}_L &= \boldsymbol{\Lambda}_L^{-1} (\sum_{l=1}^{L} \mathbf{X}_l^{\top}\mathbf{y}_l)\\
     \boldsymbol{\Lambda}_L &= \sum_{l=1}^{L} \mathbf{X}_l^{\top}\mathbf{X}_l\\
-    a_{L} &= \frac{1}{2}\sum_{l=1}^{L}n_{l} - \frac{m}{2} = \frac{n-m}{2}\\
+    a_{L} &= \frac{1}{2}\sum_{l=1}^{L}n_{l} - \frac{m}{2}\\
     b_{L} &= \frac{1}{2}\sum_{l=1}^{L}\mathbf{y}_l^{\top}\mathbf{y}_l - \frac{1}{2}(\boldsymbol{\beta}_L^{\top}\boldsymbol{\Lambda}_L\boldsymbol{\beta}_L)
 \end{align}$
+\
+\
+Summary statistic transmitted by $l$-th local center: $t(\mathbf{X}_l, \mathbf{y}_l) = (\mathbf{X}_l^{\top}\mathbf{X}_l, \mathbf{X}_l^{\top}\mathbf{y}_l, \mathbf{y}_l^{\top}\mathbf{y}_l)$
 
 ## BCA for federated inference (linear model)
 \
@@ -117,14 +126,16 @@ Maximum aposteriori estimator is equivalent to ordinary least squares on **combi
 
 ![](images/collage.params.Nurses_local_int.png){width=80% fig-align="center"}
 
-::: {.fragment}
+::: {.r-stack}
+
+::: {.fragment .fade-in-then-out}
 <div style="
   position: absolute;
-  bottom: 80px;
+  bottom: 90px;
   left: 46%;
   transform: translateX(-50%);
   width: 55px;
-  height: 160px;
+  height: 150px;
   border: 3px solid red;
   border-radius: 50%;
   background: none;
@@ -133,6 +144,26 @@ Maximum aposteriori estimator is equivalent to ordinary least squares on **combi
 <div style="text-align: center; color: red">
 "Nice agreement" (Jonker et al.)
 </div>
+:::
+
+::: {.fragment}
+<div style="
+  position: absolute;
+  bottom: 90px;
+  left: 44%;
+  transform: translateX(-50%);
+  width: 55px;
+  height: 220px;
+  border: 3px solid green;
+  border-radius: 50%;
+  background: none;
+"></div>
+
+<div style="text-align: center; color: green">
+Tricky bits: must use reference prior and mean (not MAP) of marginal gamma posterior
+</div>
+:::
+
 :::
 
 ## BCA for federated inference (GLM)
@@ -144,5 +175,32 @@ Maximum aposteriori estimator equivalent to **multivariate fixed-effect meta-ana
 \end{equation}
 
 ![](images/collage.params.trauma_shuffled.png){width=80% fig-align="center"}
+
+## BCA (linear model): Reverse-Bayes
+\
+Remove the influence of the $l$-th center from final posterior:
+
+\begin{align*}
+\boldsymbol{\beta}_{-l} &= \boldsymbol{\Lambda}_{-l}^{-1} (\boldsymbol{\Lambda}_L\boldsymbol{\beta}_L - \mathbf{X}_l^{\top}\mathbf{y}_l)\\
+\boldsymbol{\Lambda}_{-l} & = \boldsymbol{\Lambda}_L - \mathbf{X}_l^{\top}\mathbf{X}_l\\
+a_{-l} &= a_L - \frac{n_l}{2}\\
+b_{-l} &= b_L + \frac{1}{2} (\boldsymbol{\beta}_L^{\top}\boldsymbol{\Lambda}_L\boldsymbol{\beta}_L - \boldsymbol{\beta}_{-l}^{\top}\boldsymbol{\Lambda}_{-l}\boldsymbol{\beta}_{-l} - \mathbf{y}_l^{\top}\mathbf{y}_l)
+\end{align*}
+
+:::{.fragment}
+**Applications:** 
+:::
+
+- Cross-validation
+- Outlier assessment
+
+## BCA (linear model): Reverse-Bayes
+\
+Predictive check [@box_sampling_1980] for $l$-th local center using remaining centers as prior:
+
+\begin{align*}
+p_{Box} = \mathrm{Pr} \left \{ F_{m, \nu_l + 2a_{-l}} > \frac{(\boldsymbol{\hat{\beta}}_l - \boldsymbol{\tilde{\beta}}_{-l})^\top \{ (\mathbf{X}_l^\top\mathbf{X}_l)^{-1} + \boldsymbol{\Lambda}_{-l}^{-1}\}^{-1} (\boldsymbol{\hat{\beta}}_l - \boldsymbol{\tilde{\beta}}_{-l}) }{ms^2_{p}(\hat{\sigma}_l^2, \nu_l, a_{-l}, b_{-l})} \right \}
+\end{align*}
+
 
 ## Bibliography
