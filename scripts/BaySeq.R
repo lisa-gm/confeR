@@ -96,12 +96,12 @@ bayes_lin_reg_post_params <- function(bayes_stats_list, prior_params) {
     sum_n <- Reduce("+", lapply(bayes_stats_list, function(x) x$n))
 
     lambda_l <- lambda0 + sum_xx
-    mu_l <- solve(lambda_l) %*% (lambda0 %*% mu0 + sum_xy)
+    beta_l <- solve(lambda_l) %*% (lambda0 %*% mu0 + sum_xy)
     a_l <- a0 + sum_n / 2
-    b_l <- b0 + 0.5 * sum_yy + 0.5 * (t(mu0) %*% lambda0 %*% mu0 - t(mu_l) %*% lambda_l %*% mu_l)
+    b_l <- b0 + 0.5 * sum_yy + 0.5 * (t(mu0) %*% lambda0 %*% mu0 - t(beta_l) %*% lambda_l %*% beta_l)
 
     list("lambda_l" = lambda_l,
-        "mu_l" = mu_l,
+        "beta_l" = beta_l,
         "a_l" = a_l,
         "b_l" = b_l
     )
@@ -109,7 +109,7 @@ bayes_lin_reg_post_params <- function(bayes_stats_list, prior_params) {
 
 # Compute maximum a posteriori estimates for Bayesian linear regression
 bayes_lin_reg_post_map <- function(bayes_post_params, p) {
-    beta_l <- bayes_post_params$mu_l
+    beta_l <- bayes_post_params$beta_l
     a_l <- bayes_post_params$a_l
     b_l <- bayes_post_params$b_l
     lambda_l <- bayes_post_params$lambda_l
@@ -260,4 +260,68 @@ tidy_results <- function(param_seq, use_local_intercepts) {
 
     df_merged <- left_join(df, params_seq$CI, by = c("Method", "Covariate"))
     df_merged
+}
+
+# Get params for reduced posterior by removing one center from the full posterior
+get_reduced_params <- function(center_identity, params_seq, bstats, family) {
+
+    l <- center_identity
+
+    if (family == "gaussian") {
+        bayes_post_params <- params_seq$post_params
+        lambda_minus_l <- bayes_post_params$lambda_l - bstats[[l]]$xx
+        a_minus_l <- bayes_post_params$a_l - bstats[[l]]$n
+        beta_minus_l <- solve(lambda_minus_l) %*% (bayes_post_params$lambda_l
+                            %*% bayes_post_params$beta_l - bstats[[l]]$xy)
+        blb_full <- t(bayes_post_params$beta_l) %*% bayes_post_params$lambda_l %*% bayes_post_params$beta_l
+        blb_local <- t(beta_minus_l) %*% lambda_minus_l %*% beta_minus_l
+        b_minus_l <- bayes_post_params$b_l + 0.5 * (blb_full - blb_local - bstats[[l]]$yy)
+
+        return(list("lambda_minus_l" = lambda_minus_l,
+                    "a_minus_l" = a_minus_l,
+                    "beta_minus_l" = t(beta_minus_l),
+                    "b_minus_l" = b_minus_l
+                    ))
+
+    } else if (family == "binomial") {
+        delta_1s <- solve(params_seq$sigma)
+        delta_l <- solve(bstats[[l]]$sigma)
+        sigma_minus_l <- solve(delta_1s - delta_l)
+        beta_minus_l <- sigma_minus_l %*% (delta_1s %*% params_seq$beta - delta_l %*% bstats[[l]]$beta)
+
+        return(list("sigma_minus_l" = sigma_minus_l,
+                    "beta_minus_l"= t(beta_minus_l)
+                    ))
+    }
+}
+
+# Box prior predictive tail probability, check if center l estimate compatible with posterior from all other centers
+get_pred_probs <- function(center_identity, bstats, res_local, covariates_local, n_centers, reduced_params) {
+
+    l <- center_identity
+    rp <- reduced_params
+
+    sigma2_pooled <- function(sigma2, nu, a, b) {
+        (nu*  sigma2 + 2 * b) / (nu + 2 * a)
+    }
+
+    fstat <- function(beta1, beta2, xx, lambda, m, sigma2, n, a, b) {
+        nu <- n - m
+        sp <- sigma2_pooled(sigma2, nu, a, b)
+        diff <- beta1 - beta2
+        as.numeric(t(diff) %*% solve(solve(xx) + solve(lambda)) %*% diff / (m * sp))
+    }
+
+    bl <- bstats[[l]]
+    n_l <- bl$n
+    sigma2 <- res_local$sigma2_list[[l]]
+    m <- length(covariates_local)
+    xx <- bl$xx
+    xx <- xx[(n_centers+1):(n_centers+m), (n_centers+1):(n_centers+m)]
+    xy <- bl$xy[(n_centers+1):(n_centers+m)]
+    bhatl <- solve(xx) %*% xy
+    beta_minus_l_cov <- rp$beta_minus_l[(n_centers+1):(n_centers+m)]
+    lambda_minus_l_cov <- rp$lambda_minus_l[(n_centers+1):(n_centers+m), (n_centers+1):(n_centers+m)]
+    f <- fstat(bhatl, beta_minus_l_cov, xx, lambda_minus_l_cov, m, sigma2, n_l, rp$a_minus_l, rp$b_minus_l)
+    pf(f, df1 = m, df2 = (n_l - m) + 2 * rp$a_minus_l, lower.tail = FALSE)
 }
