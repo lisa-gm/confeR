@@ -1,0 +1,9 @@
+repos:
+  - repo: local
+    hooks:
+      - id: remove-notebook-output
+        name: Remove notebook output
+        description: Strips out any output or data from Jupyter Notebook cells
+        language: system
+        files: \.ipynb
+        entry: jupyter nbconvert --clear-output --inplace
