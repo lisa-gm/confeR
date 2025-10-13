@@ -83,7 +83,7 @@ bayes_lin_reg_stats <- function(mat, target, covariates, weights=NULL, k=0, n_ce
 }
 
 # Compute posterior parameters for Bayesian linear regression
-bayes_lin_reg_post_params <- function(bayes_stats_list, prior_params) {
+bayes_lin_reg_post_params <- function(bayes_stats_list, prior_params, use_local_variances=FALSE) {
 
     mu0 <- prior_params$mu0
     lambda0 <- prior_params$lambda0
@@ -97,9 +97,24 @@ bayes_lin_reg_post_params <- function(bayes_stats_list, prior_params) {
 
     lambda_l <- lambda0 + sum_xx
     beta_l <- solve(lambda_l) %*% (lambda0 %*% mu0 + sum_xy)
-    a_l <- a0 + sum_n / 2
-    b_l <- b0 + 0.5 * sum_yy + 0.5 * (t(mu0) %*% lambda0 %*% mu0 - t(beta_l) %*% lambda_l %*% beta_l)
 
+    if (use_local_variances)  {
+        # Assumes reference prior is used!
+        a_l <- list()
+        b_l <- list()
+        for (l in seq_along(bayes_stats_list)) {
+            a_l[[l]] <- bayes_stats_list[[l]]$n / 2
+            xx <- bayes_stats_list[[l]]$xx
+            xy <- bayes_stats_list[[l]]$xy
+            beta_l_l <- solve(xx) %*% xy
+            b_l[[l]] <- 0.5 * bayes_stats_list[[l]]$yy - 0.5 * t(beta_l_l) %*% xx %*% beta_l_l
+        }
+        a_l <- as.numeric(a_l)
+        b_l <- as.numeric(b_l)
+    } else {
+        a_l <- a0 + sum_n / 2
+        b_l <- b0 + 0.5 * sum_yy + 0.5 * (t(mu0) %*% lambda0 %*% mu0 - t(beta_l) %*% lambda_l %*% beta_l)
+    }
     list("lambda_l" = lambda_l,
         "beta_l" = beta_l,
         "a_l" = a_l,
@@ -144,7 +159,7 @@ get_linreg_prior <- function(covariates, use_local_intercepts, n_centers, epsilo
 }
 
 # Compute BaySeq parameters using one-shot approach
-bayseq_oneshot <- function(bstats, n_centers, use_local_intercepts, family,
+bayseq_oneshot <- function(bstats, n_centers, use_local_intercepts, use_local_variances, family,
                             covariates, epsilon=1e-10, center_name=NULL, CI="normal",
                             return_post_params = FALSE) {
     params_seq <- list()
@@ -175,7 +190,7 @@ bayseq_oneshot <- function(bstats, n_centers, use_local_intercepts, family,
             p <- length(covariates)
         }
 
-        bayes_post_params <- bayes_lin_reg_post_params(bstats, prior_params)
+        bayes_post_params <- bayes_lin_reg_post_params(bstats, prior_params, use_local_variances)
         bayes_map <- bayes_lin_reg_post_map(bayes_post_params, p)
         params_seq$beta <- bayes_map$beta_l
         params_seq$sigma <- bayes_map$sigma_l
@@ -296,7 +311,8 @@ get_reduced_params <- function(center_identity, params_seq, bstats, family) {
 }
 
 # Box prior predictive tail probability, check if center l estimate compatible with posterior from all other centers
-get_pred_probs <- function(center_identity, bstats, res_local, covariates_local, n_centers, reduced_params) {
+get_pred_probs <- function(center_identity, bstats, res_local, covariates_local,
+                            n_centers, reduced_params, use_local_intercepts) {
 
     l <- center_identity
     rp <- reduced_params
@@ -317,11 +333,20 @@ get_pred_probs <- function(center_identity, bstats, res_local, covariates_local,
     sigma2 <- res_local$sigma2_list[[l]]
     m <- length(covariates_local)
     xx <- bl$xx
-    xx <- xx[(n_centers+1):(n_centers+m), (n_centers+1):(n_centers+m)]
-    xy <- bl$xy[(n_centers+1):(n_centers+m)]
+
+    # Assumes intercepts come first in covariate ordering
+    if (use_local_intercepts) {
+        xx <- xx[(n_centers+1):(n_centers+m), (n_centers+1):(n_centers+m)]
+        xy <- bl$xy[(n_centers+1):(n_centers+m)]
+        beta_minus_l_cov <- rp$beta_minus_l[(n_centers+1):(n_centers+m)]
+        lambda_minus_l_cov <- rp$lambda_minus_l[(n_centers+1):(n_centers+m), (n_centers+1):(n_centers+m)]
+    } else {
+        xy <- bl$xy
+        beta_minus_l_cov <- t(rp$beta_minus_l)
+        lambda_minus_l_cov <- rp$lambda_minus_l
+    }
+
     bhatl <- solve(xx) %*% xy
-    beta_minus_l_cov <- rp$beta_minus_l[(n_centers+1):(n_centers+m)]
-    lambda_minus_l_cov <- rp$lambda_minus_l[(n_centers+1):(n_centers+m), (n_centers+1):(n_centers+m)]
     f <- fstat(bhatl, beta_minus_l_cov, xx, lambda_minus_l_cov, m, sigma2, n_l, rp$a_minus_l, rp$b_minus_l)
     pf(f, df1 = m, df2 = (n_l - m) + 2 * rp$a_minus_l, lower.tail = FALSE)
 }
