@@ -202,5 +202,32 @@ Predictive check [@box_sampling_1980] for $l$-th local center using remaining ce
 p_{Box} = \mathrm{Pr} \left \{ F_{m, \nu_l + 2a_{-l}} > \frac{(\boldsymbol{\hat{\beta}}_l - \boldsymbol{\tilde{\beta}}_{-l})^\top \{ (\mathbf{X}_l^\top\mathbf{X}_l)^{-1} + \boldsymbol{\Lambda}_{-l}^{-1}\}^{-1} (\boldsymbol{\hat{\beta}}_l - \boldsymbol{\tilde{\beta}}_{-l}) }{ms^2_{p}(\hat{\sigma}_l^2, \nu_l, a_{-l}, b_{-l})} \right \}
 \end{align*}
 
+\
+(It's just multivariate ANOVA)
+
+
+## Manhattan plot to assess prior conflict
+
+![](images/manhattan.png){width=80% fig-align="center"}
+
+
+:::: {.columns}
+
+::: {.column width="24%"}
+:::
+
+::: {.column width="38%"}
+(Model misspecified)
+:::
+
+::: {.column width="4%"}
+:::
+::: {.column width="34%"}
+(One outlier center)
+:::
+
+::::
+
+
 
 ## Bibliography
