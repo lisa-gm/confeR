@@ -230,3 +230,111 @@ tidy_bfi_fit <- function(BFI_fit, use_local_intercepts, family) {
 
     df_bfi
 }
+
+### PDA ###
+
+library(pda)
+
+fit_pda <- function(target, covariates, use_local_intercepts, data_split, sites, dataname, family, dir) {
+
+    model_pda <- if (family == "gaussian") "DLM" else "ODAL"
+
+    # ############################  STEP 1: initialize  ###############################
+    ## lead site1: please review and enter "1" to allow putting the control file to the server
+    control <- list(project_name = dataname,
+                    step = "initialize",
+                    sites = sites,
+                    heterogeneity = use_local_intercepts,
+                    heterogeneity_effect = "fixed", # if (use_local_intercepts) "random" else "fixed",
+                    model = model_pda,
+                    family = family,
+                    outcome = target,
+                    variables = covariates,
+                    optim_maxit = 100,
+                    lead_site = sites[[1]],
+                    upload_date = as.character(Sys.time()))
+
+    ## run the example in local directory:
+    ## assume lead site1: enter "1" to allow transferring the control file
+    pda(site_id = sites[[1]], control = control, dir = dir)
+
+    for (site in rev(sites)) {
+        ##" assume remote site l: enter "1" to allow tranferring your local estimate
+        pda(site_id = site, ipdata = data_split[[as.numeric(site)]], dir=dir)
+    }
+
+    #' ############################'  STEP 2: derivative  ###############################
+
+    for (site in rev(sites)) {
+        ##' assume remote site l: enter "1" to allow tranferring your derivatives
+        pda(site_id = site, ipdata =  data_split[[as.numeric(site)]], dir=dir)
+    }
+
+    #' ############################'  STEP 3: estimate  ###############################
+    ##' assume lead site1: enter "1" to allow tranferring the surrogate estimate
+    pda(site_id = sites[[1]], ipdata = data_split[[1]], dir=dir)
+
+    ##' the PDA is now completed!
+    ##' All the sites can still run their own surrogate estimates and broadcast them.
+
+    config <- getCloudConfig(site_id = sites[[1]], dir=dir)
+    pdaGet(name = "1_estimate", config = config)
+}
+
+
+tidy_pda <- function(fit.pda, family, use_local_intercepts, covariates_local, n_centers, alpha=0.05) {
+
+    z <- qnorm(1 - alpha / 2)
+
+    if (family == "gaussian") {
+
+        # PDA FE always fits with global intercept and L-1 local intercepts
+        # Therefore, use global intercept as intercept 1 and add to remaining intercepts
+        if (use_local_intercepts) {
+            fit.clean <- list()
+            fit.clean$sigmahat <- fit.pda$sigmahat
+            fit.clean$risk_factor <- c(
+                paste0("Intercept_", seq_len(n_centers)),
+                covariates_local
+            )
+            fit.clean$bhat <- c(fit.pda$bhat[[1]],
+                                fit.pda$bhat[[1]] + fit.pda$uhat,
+                                fit.pda$bhat[2:length(fit.pda$bhat)]
+                                )
+            fit.clean$sebhat <- c(fit.pda$sebhat[[1]], fit.pda$seuhat, fit.pda$sebhat[2:length(fit.pda$bhat)])
+            fit.pda <- fit.clean
+        }
+
+        lower <- fit.pda$bhat - z * fit.pda$sebhat
+        upper <- fit.pda$bhat + z * fit.pda$sebhat
+        df_pda <- data.frame(
+            lower = lower,
+            upper = upper
+        )
+        df_pda$Estimate <- fit.pda$bhat
+        df_pda$Method <- "PDA"
+        df_pda$Covariate <- fit.pda$risk_factor
+        row <- list(NA, NA, fit.pda$sigmahat, "PDA", "sigma2")
+        df_sigma2 <- as.data.frame(row, stringsAsFactors = FALSE)
+        colnames(df_sigma2) <- colnames(df_pda)
+        df_pda <- rbind(df_pda, df_sigma2)
+
+    } else {
+        #vcov_mat <- solve(fit.pda$Htilde)
+        se <- sqrt(diag(fit.pda$Htilde))
+
+        # Wald confidence intervals
+        lower <- fit.pda$btilde - z * se
+        upper <- fit.pda$btilde + z * se
+
+        df_pda <- data.frame(
+            lower = lower,
+            upper = upper
+        )
+        df_pda$Estimate <- fit.pda$btilde
+        df_pda$Method <- "PDA"
+        df_pda$Covariate <- fit.pda$risk_factor
+    }
+
+    df_pda
+}
