@@ -45,15 +45,15 @@ We wish to estimate regression coefficients $\boldsymbol{\beta}$ from the data $
 :::
 
 - **One-shot:** one round of communication
-  - Contrast to federated machine learning: iterative
 - **Parallel:** each center communicates independently
 
 ::: {.fragment}
 ### Methods
 :::
 
-- Multivariate meta-analysis
-- BFI: Bayesian Federated Inference [@jonker_bayesian_2024]
+- Multivariate meta-analysis (metafor)
+- PDA: Privacy-preserving distributed algorithms (R)
+- BFI: Bayesian Federated Inference (R)
 - BCA: Bayesian Conjugate Analysis (Degen and Held)
 - Distributed MCMC (not shown)
 :::
@@ -64,9 +64,28 @@ We wish to estimate regression coefficients $\boldsymbol{\beta}$ from the data $
 <a href="https://www.flaticon.com/free-stickers/hospital" title="hospital stickers">Hospital stickers created by kerismaker - Flaticon</a>
 :::
 
-## Bayesian federated inference (BFI)
+## Existing methods
+
+### Surrogate likelihood (used by PDA package)
+
+[@lu_meta-analysis_2025; @jordan_communication-efficient_2019]
+
+$\begin{align}
+\mathcal{L}_N (\beta) &= \mathcal{L}_N (\bar{\beta}) + \langle\nabla\mathcal{L}_N(\bar{\beta}), \beta - \bar{\beta}\rangle + \sum_{j=2}^{\infty}\frac{1}{j!}\nabla^{j}\mathcal{L}_N(\bar{\beta})(\beta - \bar{\beta})^{\otimes j}\\ 
+&\approx \mathcal{L}_N (\bar{\beta}) + \langle\nabla\mathcal{L}_N(\bar{\beta}), \beta - \bar{\beta}\rangle + \sum_{j=2}^{\infty}\frac{1}{j!}\nabla^{j}\mathcal{L}_1(\bar{\beta})(\beta - \bar{\beta})^{\otimes j}\
+\end{align}$
+
+- Taylor expansion of log likelihood
+- Approximate global higher-order derivatives with local derivative of one chosen center
+
+::: {.fragment}
+
+### Bayesian federated inference (BFI)
+
+[@jonker_bayesian_2024]
 
 - Approximate $\boldsymbol{\beta}$ using second-order Taylor expansion centered around maximum aposteriori estimate
+:::
 
 ## Bayesian conjugate analysis (BCA)
 
@@ -166,6 +185,12 @@ Tricky bits: must use reference prior and mean (not MAP) of marginal gamma poste
 
 :::
 
+## BCA for federated inference (linear model)
+\
+Using global intercept
+
+![](images/collage.Nurses.png){width=80% fig-align="center"}
+
 ## BCA for federated inference (GLM)
 \
 Maximum aposteriori estimator equivalent to **multivariate fixed-effect meta-analysis**:
@@ -174,7 +199,7 @@ Maximum aposteriori estimator equivalent to **multivariate fixed-effect meta-ana
 \boldsymbol{\tilde{\beta}}_L = (\sum_{l=1}^L\boldsymbol{\hat{\Lambda}_l})^{-1}\sum_{l=1}^L\boldsymbol{\hat{\Lambda}_l}\boldsymbol{\hat{\beta}_l}
 \end{equation}
 
-![](images/collage.params.trauma_shuffled.png){width=80% fig-align="center"}
+![](images/collage.trauma_shuffled.png){width=80% fig-align="center"}
 
 ## BCA (linear model): Reverse-Bayes
 \
@@ -208,22 +233,33 @@ p_{Box} = \mathrm{Pr} \left \{ F_{m, \nu_l + 2a_{-l}} > \frac{(\boldsymbol{\hat{
 
 ## Manhattan plot to assess prior conflict
 
+\
+\
+
 ![](images/manhattan.png){width=80% fig-align="center"}
 
 
 :::: {.columns}
 
-::: {.column width="24%"}
+::: {.column width="12%"}
 :::
 
-::: {.column width="38%"}
+::: {.column width="29%"}
 (Model misspecified)
 :::
 
 ::: {.column width="4%"}
 :::
-::: {.column width="34%"}
-(One outlier center)
+
+::: {.column width="27%"}
+(Model misspecified)
+:::
+
+::: {.column width="4%"}
+:::
+
+::: {.column width="23%"}
+(Outliers identified)
 :::
 
 ::::
