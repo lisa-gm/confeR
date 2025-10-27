@@ -1,0 +1,20 @@
+citHeader(paste("To cite the R-package 'XXX' in publications,",
+                "please use:",
+                "Degen, P., Pawel, S., Held, L.",
+                "(2025).",
+                "XXXXX",
+                "<https://doi.org/XXX>"))
+
+bibentry(bibtype = "Misc",
+         title = "XXXXX",
+         author = c(person(given = "Peter", family = "Degen", role = c("aut", "cre")),
+                    person(given = "Samuel", family = "Pawel", role = c("aut")),
+                    person(given = "Leonhard", family = "Held", role = "aut")),
+         ## journal = "",
+         ## volume = "",
+         ## number = "",
+         ## pages = "",
+         note = "Working paper",
+         doi = "XXXX",
+         year = "2025"
+         )
