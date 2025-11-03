@@ -18,7 +18,7 @@ Title: confeR
 Description: Implements Bayesian conjugate analysis for federated inference as described in Degen et al. (2025) <doi:XXXXXXXXXXXX>.
 License: GPL-3
 Encoding: UTF-8
-Imports:
+Imports: invgamma, dplyr, tidyr, tibble
 Suggests: roxygen2
 NeedsCompilation: no
 RoxygenNote: 7.3.3

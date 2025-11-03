@@ -1,20 +1,36 @@
 library(dplyr)
 library(tidyr)
+library(tibble)
 library(invgamma)
 
 #' @title BCA iterate over local sites
 #'
 #' @description Pre-processing wrapper for BCA methods.
 #'
-#' @param outcome Outcome vector y
+#' @param outcome Name of outcome y.
+#' @param covariates Vector of covariate names.
+#' @param model Formula object relating outcome to covariates.
+#' @param family Family to pass to glm() call, e.g. "gaussian".
+#' @param data_split List, each element containing a dataframe with the data.
+#'   from a local site.
+#' @param use_local_intercepts Logical. If true, use fixed site-specific
+#'   intercepts for each local site.
+#' @param center_name Character (optional). Name of covariate denoting site identity. Must
+#'   be supplied if `use_local_intercepts` is TRUE.
 #'
-#' @return List over all local sites with transmitted summary statistics
+#' @return List with transmitted summary statistics for each local site.
 #'
 #' @author Peter Degen
 #'
 #' @export
-bca_iterate_sites <- function(outcome, covariates, Method, data_split,
+bca_iterate_sites <- function(outcome, covariates, model, family, data_split,
                               use_local_intercepts, center_name = NULL) {
+
+    # input checks
+    if (use_local_intercepts && is.null(center_name))
+        stop("`center_name` must be supplied when `use_local_intercepts` is TRUE")
+    if (family != "gaussian" && use_local_intercepts)
+        stop("`family` must be `gaussian` when `use_local_intercepts` is TRUE")
 
     n_sites <- length(data_split)
     bstats <- vector("list", n_sites)
@@ -26,8 +42,8 @@ bca_iterate_sites <- function(outcome, covariates, Method, data_split,
             if (use_local_intercepts) {
                 stop("Not yet implemented")
             } else {
-                res <- glm(Method, family, data_split[[i]])
-                bstats[[i]] <- list("beta" = res$coefficients, "sigma" = vcov(res))
+                res <- stats::glm(model, family, data_split[[i]])
+                bstats[[i]] <- list("beta" = res$coefficients, "sigma" = stats::vcov(res))
             }
 
         # For Bayesian linear regression, we locally compute sufficient statistics
@@ -35,14 +51,11 @@ bca_iterate_sites <- function(outcome, covariates, Method, data_split,
             mat <- data_split[[i]]
 
             if (use_local_intercepts) {
-                stopifnot(!is.null(center_name))
                 covariates_local <- covariates[covariates != center_name]
                 bstats[[i]] <- bayes_lin_reg_stats(mat, outcome, covariates_local, k = i, n_sites = n_sites)
             } else {
                 bstats[[i]] <- bayes_lin_reg_stats(mat, outcome, covariates)
             }
-        } else {
-            stop(paste0("Invalid family:", family))
         }
     }
     bstats
@@ -132,12 +145,12 @@ bayes_lin_reg_post_params <- function(bayes_stats_list, prior_params, use_local_
     )
 }
 
-bayes_lin_reg_post_map <- function(bayes_post_params, p) {
+bayes_lin_reg_post_map <- function(params_oneshot, p) {
     # Compute maximum a posteriori estimates for Bayesian linear regression
-    beta_l <- bayes_post_params$beta_l
-    a_l <- bayes_post_params$a_l
-    b_l <- bayes_post_params$b_l
-    lambda_l <- bayes_post_params$lambda_l
+    beta_l <- params_oneshot$beta_l
+    a_l <- params_oneshot$a_l
+    b_l <- params_oneshot$b_l
+    lambda_l <- params_oneshot$lambda_l
     tau_l <- as.numeric(a_l / b_l)
     sigma_l <- solve(tau_l * lambda_l)
     list("beta_l" = beta_l, "sigma_l" = sigma_l, "lambda_l" = lambda_l)
@@ -171,9 +184,24 @@ get_linreg_prior <- function(covariates, use_local_intercepts, n_sites, epsilon 
 
 #' @title BCA one-shot
 #'
-#' @description Perform one-shot computation
+#' @description Perform one-shot computation of parameter estimates given
+#'   transmitted summary statistics.
 #'
-#' @param bstats List of summary statistics returned by bca_iterate_sites
+#' @param bstats List of summary statistics from each local site, e.g. obbject
+#'   returned by `bca_iterate_sites`.
+#' @param n_sites Number of sites.
+#' @param use_local_intercepts Logical. If true, use fixed site-specific
+#'   intercepts for each local site.
+#' @param use_local_variances Logical. If true, use fixed site-specific residual
+#'   variances for each local site.
+#' @param family Family to pass to glm() call, e.g. "gaussian".
+#' @param covariates Vector of covariate names.
+#' @param epsilon Numeric. Regularization for prior hyperparameters. Default
+#'   1e-10.
+#' @param center_name Character (optional). Name of covariate denoting site
+#'   identity. Must be supplied if `family` is `gaussian`.
+#' @param alpha Numeric. Significance level for credible intervals. Default
+#'   0.05.
 #'
 #' @return List of oneshot parameter estimates
 #'
@@ -181,13 +209,15 @@ get_linreg_prior <- function(covariates, use_local_intercepts, n_sites, epsilon 
 #'
 #' @export
 bca_oneshot <- function(bstats, n_sites, use_local_intercepts, use_local_variances, family,
-                           covariates, epsilon = 1e-10, center_name = NULL, CI = "normal",
-                           return_post_params = FALSE, alpha=0.05) {
-    # Compute BCA parameters using one-shot approach
+                           covariates, epsilon = 1e-10, center_name = NULL, alpha=0.05) {
+    # input checks
+    if (family == "gaussian" && is.null(center_name))
+        stop("`center_name` must be supplied when `family` = `gaussian`")
+
     params_oneshot <- list()
 
     if (family != "gaussian") {
-        print("Normal Method known variance")
+        print("Normal model known variance")
 
         update_normal_known_variance <- function(beta, sigma) {
             sigma_post <- solve(Reduce(`+`, lapply(sigma, solve)))
@@ -201,7 +231,6 @@ bca_oneshot <- function(bstats, n_sites, use_local_intercepts, use_local_varianc
         params_oneshot$beta <- updated_params$beta
     } else {
         print("Bayesian linear regression")
-        stopifnot(!is.null(center_name))
         covariates_local <- covariates[covariates != center_name]
         prior_params <- get_linreg_prior(covariates_local, use_local_intercepts, n_sites, epsilon = epsilon)
 
@@ -211,30 +240,22 @@ bca_oneshot <- function(bstats, n_sites, use_local_intercepts, use_local_varianc
             p <- length(covariates)
         }
 
-        bayes_post_params <- bayes_lin_reg_post_params(bstats, prior_params, use_local_variances)
-        bayes_map <- bayes_lin_reg_post_map(bayes_post_params, p)
+        params_oneshot <- bayes_lin_reg_post_params(bstats, prior_params, use_local_variances)
+        bayes_map <- bayes_lin_reg_post_map(params_oneshot, p)
         params_oneshot$beta <- bayes_map$beta_l
         params_oneshot$sigma <- bayes_map$sigma_l
-        params_oneshot$a_l <- bayes_post_params$a_l
-        params_oneshot$b_l <- bayes_post_params$b_l
+        params_oneshot$a_l <- params_oneshot$a_l
+        params_oneshot$b_l <- params_oneshot$b_l
         params_oneshot$lambda_l <- bayes_map$lambda_l
 
         # use inverse of mean to get equivalent sigma2 to lm
-        params_oneshot$dispersion <- as.numeric(bayes_post_params$b_l / (bayes_post_params$a_l))
+        params_oneshot$dispersion <- as.numeric(params_oneshot$b_l / (params_oneshot$a_l))
         disp_ci <- invgamma::qinvgamma(c(alpha/2, 1-alpha/2),
-                                       shape = bayes_post_params$a_l,
-                                       rate = bayes_post_params$b_l)
-
-        if (return_post_params) {
-            params_oneshot$post_params <- bayes_post_params
-        }
+                                       shape = params_oneshot$a_l,
+                                       rate = params_oneshot$b_l)
     }
 
-    if (CI == "t") {
-        params_oneshot$CI <- get_bayes_linreg_ci_t(params_oneshot)
-    } else if (CI == "normal") {
-        params_oneshot$CI <- get_bayes_linreg_ci_normal(params_oneshot)
-    }
+    params_oneshot$CI <- get_bayes_linreg_ci_normal(params_oneshot, alpha)
 
     if (family == "gaussian") {
         new_row <- data.frame(disp_ci[[1]], disp_ci[[2]], row.names = "sigma2")
@@ -249,7 +270,7 @@ get_bayes_linreg_ci_normal <- function(params_oneshot, alpha = 0.05) {
     # Compute credible intervals for Bayesian linear regression
 
     # normal
-    z <- qnorm(1 - alpha / 2) # ≈ 1.96 for 95% CI
+    z <- stats::qnorm(1 - alpha / 2) # ≈ 1.96 for 95% CI
     lower <- params_oneshot$beta - z * sqrt(diag(params_oneshot$sigma))
     upper <- params_oneshot$beta + z * sqrt(diag(params_oneshot$sigma))
     ci <- data.frame(
@@ -259,36 +280,13 @@ get_bayes_linreg_ci_normal <- function(params_oneshot, alpha = 0.05) {
     ci
 }
 
-get_bayes_linreg_ci_t <- function(params_oneshot, alpha = 0.05) {
-    # Use marginal t-distributions for CI
-
-    mu <- params_oneshot$beta
-    a <- as.vector(params_oneshot$a_l)
-    b <- as.vector(params_oneshot$b_l)
-    lambda_diag <- diag(params_oneshot$lambda_l)
-
-    # Degrees of freedom
-    nu <- 2 * a # == n - m
-
-    scale <- (lambda_diag * a) / b
-    variance <- (1 / scale) * nu / (nu - 2) # B-S p. 435
-    stdev <- sqrt(variance)
-
-    t_crit <- qt(1 - alpha / 2, df = nu)
-    lower <- mu - t_crit * stdev
-    upper <- mu + t_crit * stdev
-
-    data.frame(
-        lower = lower,
-        upper = upper
-    )
-}
-
 #' @title BCA tidy results
 #'
 #' @description Tidy results from one-shot
 #'
-#' @param params_oneshot Parameters returned by bca_oneshot
+#' @param params_oneshot Parameters returned by `bca_oneshot`.
+#' @param use_local_intercepts Logical. If true, use fixed site-specific
+#'   intercepts for each local site.
 #'
 #' @return Dataframe
 #'
@@ -303,33 +301,48 @@ tidy_results <- function(params_oneshot, use_local_intercepts) {
     }
     df <- data.frame(t(params_oneshot_all), check.names = FALSE) # prevent renaming (Intercept) to X.Intercept.
     df$Method <- "BCA"
-    df <- df %>% pivot_longer(-Method, names_to = "Covariate", values_to = "Estimate")
+    df <- df |> tidyr::pivot_longer(-Method, names_to = "Covariate",  # nolint: object_usage_linter.
+                                    values_to = "Estimate")
 
     params_oneshot$CI$Method <- "BCA"
     if (!("Covariate" %in% colnames(params_oneshot$CI))) {
         params_oneshot$CI <- tibble::rownames_to_column(params_oneshot$CI, var = "Covariate")
     }
 
-    df_merged <- left_join(df, params_oneshot$CI, by = c("Method", "Covariate"))
+    df_merged <- dplyr::left_join(df, params_oneshot$CI, by = c("Method", "Covariate"))
     df_merged
 }
 
+#' @title Get reduced params
+#'
+#' @description Use Reverse-Bayes to get reduced parameters obtained by leaving
+#'   out one local site from the full posterior.
+#'
+#' @param center_identity The id of the site to be removed.
+#' @param params_oneshot Parameters returned by bca_oneshot.
+#' @param bstats List of summary statistics from each local site, e.g. obbject
+#'   returned by `bca_iterate_sites`.
+#' @param family Family to pass to glm() call, e.g. "gaussian".
+#'
+#' @return List with reduced parameter estimates.
+#'
+#' @author Peter Degen
+#'
+#' @export
 get_reduced_params <- function(center_identity, params_oneshot, bstats, family) {
-    # Get params for reduced posterior by removing one center from the full posterior
 
     l <- center_identity
 
     if (family == "gaussian") {
-        bayes_post_params <- params_oneshot$post_params
-        lambda_minus_l <- bayes_post_params$lambda_l - bstats[[l]]$xx
-        a_minus_l <- bayes_post_params$a_l - bstats[[l]]$n
-        beta_minus_l <- solve(lambda_minus_l) %*% (bayes_post_params$lambda_l
-            %*% bayes_post_params$beta_l - bstats[[l]]$xy)
-        blb_full <- t(bayes_post_params$beta_l) %*% bayes_post_params$lambda_l %*% bayes_post_params$beta_l
+        lambda_minus_l <- params_oneshot$lambda_l - bstats[[l]]$xx
+        a_minus_l <- params_oneshot$a_l - bstats[[l]]$n
+        beta_minus_l <- solve(lambda_minus_l) %*% (params_oneshot$lambda_l
+            %*% params_oneshot$beta - bstats[[l]]$xy)
+        blb_full <- t(params_oneshot$beta) %*% params_oneshot$lambda_l %*% params_oneshot$beta
         blb_local <- t(beta_minus_l) %*% lambda_minus_l %*% beta_minus_l
-        b_minus_l <- bayes_post_params$b_l + 0.5 * (blb_full - blb_local - bstats[[l]]$yy)
+        b_minus_l <- params_oneshot$b_l + 0.5 * (blb_full - blb_local - bstats[[l]]$yy)
 
-        return(list(
+        return(list( # nolint: return_linter.
             "lambda_minus_l" = lambda_minus_l,
             "a_minus_l" = a_minus_l,
             "beta_minus_l" = t(beta_minus_l),
@@ -341,16 +354,36 @@ get_reduced_params <- function(center_identity, params_oneshot, bstats, family) 
         sigma_minus_l <- solve(delta_1s - delta_l)
         beta_minus_l <- sigma_minus_l %*% (delta_1s %*% params_oneshot$beta - delta_l %*% bstats[[l]]$beta)
 
-        return(list(
+        return(list( # nolint: return_linter.
             "sigma_minus_l" = sigma_minus_l,
             "beta_minus_l" = t(beta_minus_l)
         ))
     }
 }
 
-get_pred_probs <- function(center_identity, bstats, res_local, covariates_local,
+#' @title Box prior predictive tail probability
+#'
+#' @description Check if estimate from specific site is compatible with
+#'   posterior from all other centers.
+#'
+#' @param center_identity The id of the site to be checked
+#' @param bstats List of summary statistics from each local site, e.g. obbject
+#'   returned by `bca_iterate_sites`.
+#' @param local_sigma2s Numeric vector with local residual variances from glm().
+#' @param covariates Vector of covariate names.
+#' @param n_sites Number of sites.
+#' @param reduced_params Reduced posterior parameters returnd by
+#'   `get_reduced_params`.
+#' @param use_local_intercepts Logical. If true, use fixed site-specific
+#'   intercepts for each local site.
+#'
+#' @return The Box prior predictive tail probability.
+#'
+#' @author Peter Degen
+#'
+#' @export
+get_pred_prob <- function(center_identity, bstats, local_sigma2s, covariates,
                            n_sites, reduced_params, use_local_intercepts) {
-    # Box prior predictive tail probability, check if center l estimate compatible with posterior from all other centers
 
     l <- center_identity
     rp <- reduced_params
@@ -368,8 +401,8 @@ get_pred_probs <- function(center_identity, bstats, res_local, covariates_local,
 
     bl <- bstats[[l]]
     n_l <- bl$n
-    sigma2 <- res_local$sigma2_list[[l]]
-    m <- length(covariates_local)
+    sigma2 <- local_sigma2s[[l]]
+    m <- length(covariates)
     xx <- bl$xx
 
     # Assumes intercepts come first in covariate ordering
@@ -386,5 +419,50 @@ get_pred_probs <- function(center_identity, bstats, res_local, covariates_local,
 
     bhatl <- solve(xx) %*% xy
     f <- fstat(bhatl, beta_minus_l_cov, xx, lambda_minus_l_cov, m, sigma2, n_l, rp$a_minus_l, rp$b_minus_l)
-    pf(f, df1 = m, df2 = (n_l - m) + 2 * rp$a_minus_l, lower.tail = FALSE)
+    stats::pf(f, df1 = m, df2 = (n_l - m) + 2 * rp$a_minus_l, lower.tail = FALSE)
+}
+
+#' @title Box prior predictive tail probabilities for all sites
+#'
+#' @description Calculate p_Box for all sites.
+#'
+#' @param data_split The data split by local sites.
+#' @param params_oneshot Parameters returned by `bca_oneshot`.
+#' @param bstats List of summary statistics from each local site, e.g. obbject
+#'   returned by `bca_iterate_sites`.
+#' @param family Family to pass to glm() call, e.g. "gaussian".
+#' @param local_sigma2s Numeric vector with local residual variances from glm().
+#' @param covariates Vector of covariate names.
+#' @param n_sites Number of sites.
+#' @param use_local_intercepts Logical. If true, use fixed site-specific
+#'   intercepts for each local site.
+#' @param center_name Character. Name of covariate denoting site identity.
+#'
+#' @return List with pboxes and reduced parameters for all sites.
+#'
+#' @author Peter Degen
+#'
+#' @export
+box_check_all_sites <- function(data_split, params_oneshot, bstats, family, local_sigma2s, covariates,
+                                n_sites, use_local_intercepts, center_name) {
+
+    results <- lapply(seq_along(data_split), function(l) {
+        reduced_params_l <- get_reduced_params(l, params_oneshot, bstats, family)
+        pbox <- get_pred_prob(
+            l, bstats, local_sigma2s, covariates, n_sites,
+            reduced_params_l, use_local_intercepts
+        )
+        list(
+            pbox = pbox,
+            beta_minus_l = reduced_params_l$beta_minus_l
+        )
+    })
+
+    reduced_params <- do.call(rbind, lapply(results, `[[`, "beta_minus_l"))
+    pboxes <- lapply(results, `[[`, "pbox")
+    pboxes <- unlist(pboxes)
+
+    reduced_params <- as.data.frame(reduced_params)
+    reduced_params[[center_name]] <- seq_along(data_split)
+    list("pboxes" = pboxes, "reduced_params"=reduced_params)
 }

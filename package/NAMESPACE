@@ -2,4 +2,7 @@
 
 export(bca_iterate_sites)
 export(bca_oneshot)
+export(box_check_all_sites)
+export(get_pred_prob)
+export(get_reduced_params)
 export(tidy_results)

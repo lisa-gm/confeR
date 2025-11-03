@@ -7,7 +7,10 @@
 tidy_results(params_oneshot, use_local_intercepts)
 }
 \arguments{
-\item{params_oneshot}{Parameters returned by bca_oneshot}
+\item{params_oneshot}{Parameters returned by `bca_oneshot`.}
+
+\item{use_local_intercepts}{Logical. If true, use fixed site-specific
+intercepts for each local site.}
 }
 \value{
 Dataframe

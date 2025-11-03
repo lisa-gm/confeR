@@ -7,17 +7,33 @@
 bca_iterate_sites(
   outcome,
   covariates,
-  Method,
+  model,
+  family,
   data_split,
   use_local_intercepts,
   center_name = NULL
 )
 }
 \arguments{
-\item{outcome}{Outcome vector y}
+\item{outcome}{Name of outcome y.}
+
+\item{covariates}{Vector of covariate names.}
+
+\item{model}{Formula object relating outcome to covariates.}
+
+\item{family}{Family to pass to glm() call, e.g. "gaussian".}
+
+\item{data_split}{List, each element containing a dataframe with the data.
+from a local site.}
+
+\item{use_local_intercepts}{Logical. If true, use fixed site-specific
+intercepts for each local site.}
+
+\item{center_name}{Character (optional). Name of covariate denoting site identity. Must
+be supplied if `use_local_intercepts` is TRUE.}
 }
 \value{
-List over all local sites with transmitted summary statistics
+List with transmitted summary statistics for each local site.
 }
 \description{
 Pre-processing wrapper for BCA methods.

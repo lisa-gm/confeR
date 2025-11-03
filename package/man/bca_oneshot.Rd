@@ -13,19 +13,40 @@ bca_oneshot(
   covariates,
   epsilon = 1e-10,
   center_name = NULL,
-  CI = "normal",
-  return_post_params = FALSE,
   alpha = 0.05
 )
 }
 \arguments{
-\item{bstats}{List of summary statistics returned by bca_iterate_sites}
+\item{bstats}{List of summary statistics from each local site, e.g. obbject
+returned by `bca_iterate_sites`.}
+
+\item{n_sites}{Number of sites.}
+
+\item{use_local_intercepts}{Logical. If true, use fixed site-specific
+intercepts for each local site.}
+
+\item{use_local_variances}{Logical. If true, use fixed site-specific residual
+variances for each local site.}
+
+\item{family}{Family to pass to glm() call, e.g. "gaussian".}
+
+\item{covariates}{Vector of covariate names.}
+
+\item{epsilon}{Numeric. Regularization for prior hyperparameters. Default
+1e-10.}
+
+\item{center_name}{Character (optional). Name of covariate denoting site
+identity. Must be supplied if `family` is `gaussian`.}
+
+\item{alpha}{Numeric. Significance level for credible intervals. Default
+0.05.}
 }
 \value{
 List of oneshot parameter estimates
 }
 \description{
-Perform one-shot computation
+Perform one-shot computation of parameter estimates given
+  transmitted summary statistics.
 }
 \author{
 Peter Degen
