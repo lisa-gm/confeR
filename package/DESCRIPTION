@@ -1,6 +1,6 @@
-Package: test
+Package: confeR
 Version: 0.1
-Date: 2025-10-27
+Date: 2025-11-03
 Authors@R:
     c(person(given = "Peter",
            family = "Degen",
@@ -12,10 +12,10 @@ Authors@R:
            role = c("aut"),
            email = "samuel.pawel@uzh.ch",
            comment = c(ORCID = "0000-0003-2779-320X")))
-Author: Peter Degen [aut, cre] (<https://orcid.org/0000-0003-2779-320X>)
+Author: Peter Degen [aut, cre] (<https://orcid.org/0009-0004-0706-9200>)
 Maintainer: Peter Degen <peter.degen@uzh.ch>
-Title: XXXXXXXXXXXXXXXXXXXXXXX
-Description: Implements XXXX as described in Degen et al. (2025) <doi:XXXXXXXXXXXX>.
+Title: confeR
+Description: Implements Bayesian conjugate analysis for federated inference as described in Degen et al. (2025) <doi:XXXXXXXXXXXX>.
 License: GPL-3
 Encoding: UTF-8
 Imports:

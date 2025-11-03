@@ -1,6 +1,6 @@
 # Bayesian conjugate analysis for federated statistical inference
 
-This repository contains 
+This repository contains
 
 1. `./package` The R package **confeR** to perform Bayesian conjugate analysis for federated inference
 
@@ -27,3 +27,12 @@ dependencies. RStudio Server can then be opened from a browser
 (<http://localhost:8787>), and the Quarto notebooks in `./paper`, which
 contains all code for the results from the paper, can be rerun (make sure to set
 the working directory to `./paper` when running R interactively).
+
+## To do
+
+- Dockerize
+- Improve documentation
+- Package name
+- Summary figure
+- Package README
+- Tests

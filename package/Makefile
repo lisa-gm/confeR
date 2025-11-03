@@ -4,7 +4,7 @@
 ## adapted from Manuela Ott, Sebastian Meyer, Florian Gerber
 ## ----------------------------------------------------------------------------
 
-PACKAGE = test
+PACKAGE = confeR
 VERSION = 0.1
 TAR = $(PACKAGE)_$(VERSION).tar.gz
 
