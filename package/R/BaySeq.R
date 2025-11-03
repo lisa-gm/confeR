@@ -104,6 +104,70 @@ bayes_lin_reg_stats <- function(mat, outcome, covariates, weights = NULL, k = 0,
     )
 }
 
+#' @title Local params
+#'
+#' @description Compute local glm parameters from summary statistics.
+#'
+#' @param bstats List of summary statistics from each local site, e.g. obbject
+#'   returned by `bca_iterate_sites`.
+#' @param center_identity The id of the site to be removed.
+#' @param family Family to pass to glm() call, e.g. "gaussian".
+#' @param alpha Numeric. Significance level for credible intervals. Default
+#'   0.05.
+#'
+#' @return List with beta hat and credible intervals.
+#'
+#' @author Peter Degen
+#'
+#' @export
+bayes_local_glm <- function(bstats, center_identity, family, alpha=0.05) {
+    bs <- bstats[[center_identity]]
+    xx <- bs$xx
+    xy <- bs$xy
+    yy <- bs$yy
+    n <- bs$n
+
+    keep_intercept <- paste0("^Intercept_", center_identity, "$")
+    drop_pattern   <- "^Intercept_.*$"
+    drop_rows_cols <- grep(drop_pattern, colnames(xx), value = TRUE)
+    drop_rows_cols <- setdiff(drop_rows_cols, grep(keep_intercept,
+                                                    drop_rows_cols,
+                                                    value = TRUE))
+
+    if (length(drop_rows_cols) > 0) {
+        xx <- xx[!rownames(xx) %in% drop_rows_cols, !colnames(xx) %in% drop_rows_cols, drop = FALSE]
+        rnxy <- rownames(xy)[!rownames(xy) %in% drop_rows_cols]
+        xy <- as.matrix(xy[rownames(xy) %in% rnxy])
+        rownames(xy) <- rnxy
+    }
+
+    m <- nrow(xx)  # includes intercept
+    beta_hat <- solve(xx) %*% xy
+
+    z <- stats::qnorm(1 - alpha / 2) # ≈ 1.96 for 95% CI
+
+    if (family == "gaussian") {
+        a_hat <- 0.5 * (n-m)
+        b_hat <- 0.5 * (yy - t(beta_hat) %*% xx %*% beta_hat)
+        b_hat <- as.numeric(b_hat)
+        tau_hat <- a_hat / b_hat
+        sigma_hat <- solve(tau_hat * xx)
+    } else {
+        sigma_hat <- solve(xx)
+    }
+
+    lower <- beta_hat - z * sqrt(diag(sigma_hat))
+    upper <- beta_hat + z * sqrt(diag(sigma_hat))
+    ci <- data.frame(
+        lower = lower,
+        upper = upper)
+    list("beta_hat" = beta_hat, "ci" = ci)
+
+    # TO DO: test this function by asserting equivalence to glm
+    # fit <- glm(model, family, data_split[[1]])
+    # ci <- confint(fit, level = 1-alpha)
+}
+
 bayes_lin_reg_post_params <- function(bayes_stats_list, prior_params, use_local_variances = FALSE) {
     # Compute posterior parameters for Bayesian linear regression
 
@@ -145,7 +209,7 @@ bayes_lin_reg_post_params <- function(bayes_stats_list, prior_params, use_local_
     )
 }
 
-bayes_lin_reg_post_map <- function(params_oneshot, p) {
+bayes_lin_reg_post_map <- function(params_oneshot) {
     # Compute maximum a posteriori estimates for Bayesian linear regression
     beta_l <- params_oneshot$beta_l
     a_l <- params_oneshot$a_l
@@ -161,7 +225,7 @@ get_linreg_prior <- function(covariates, use_local_intercepts, n_sites, epsilon 
     if (use_local_intercepts) {
         p <- length(covariates) + n_sites
     } else {
-        p <- length(covariates)
+        p <- length(covariates) + 1
     }
 
     if (use_local_intercepts) {
@@ -228,22 +292,16 @@ bca_oneshot <- function(bstats, n_sites, use_local_intercepts, use_local_varianc
         sigma <- lapply(bstats, function(x) x[["sigma"]])
         updated_params <- update_normal_known_variance(beta, sigma)
         params_oneshot$sigma <- updated_params$sigma
-        params_oneshot$beta <- updated_params$beta
+        params_oneshot$beta_l <- updated_params$beta
     } else {
         print("Bayesian linear regression")
         covariates_local <- covariates[covariates != center_name]
         prior_params <- get_linreg_prior(covariates_local, use_local_intercepts, n_sites, epsilon = epsilon)
 
-        if (use_local_intercepts) {
-            p <- length(covariates) + n_sites
-        } else {
-            p <- length(covariates)
-        }
-
         params_oneshot <- bayes_lin_reg_post_params(bstats, prior_params, use_local_variances)
-        bayes_map <- bayes_lin_reg_post_map(params_oneshot, p)
-        params_oneshot$beta <- bayes_map$beta_l
-        params_oneshot$sigma <- bayes_map$sigma_l
+        bayes_map <- bayes_lin_reg_post_map(params_oneshot)
+        params_oneshot$beta_l <- bayes_map$beta_l
+        params_oneshot$sigma_l <- bayes_map$sigma_l
         params_oneshot$a_l <- params_oneshot$a_l
         params_oneshot$b_l <- params_oneshot$b_l
         params_oneshot$lambda_l <- bayes_map$lambda_l
@@ -255,7 +313,7 @@ bca_oneshot <- function(bstats, n_sites, use_local_intercepts, use_local_varianc
                                        rate = params_oneshot$b_l)
     }
 
-    params_oneshot$CI <- get_bayes_linreg_ci_normal(params_oneshot, alpha)
+    params_oneshot$CI <- get_bayes_ci_normal(params_oneshot, alpha)
 
     if (family == "gaussian") {
         new_row <- data.frame(disp_ci[[1]], disp_ci[[2]], row.names = "sigma2")
@@ -266,13 +324,11 @@ bca_oneshot <- function(bstats, n_sites, use_local_intercepts, use_local_varianc
     params_oneshot
 }
 
-get_bayes_linreg_ci_normal <- function(params_oneshot, alpha = 0.05) {
-    # Compute credible intervals for Bayesian linear regression
-
-    # normal
+get_bayes_ci_normal <- function(params_oneshot, alpha = 0.05) {
+    # Compute credible intervals
     z <- stats::qnorm(1 - alpha / 2) # ≈ 1.96 for 95% CI
-    lower <- params_oneshot$beta - z * sqrt(diag(params_oneshot$sigma))
-    upper <- params_oneshot$beta + z * sqrt(diag(params_oneshot$sigma))
+    lower <- params_oneshot$beta_l - z * sqrt(diag(params_oneshot$sigma_l))
+    upper <- params_oneshot$beta_l + z * sqrt(diag(params_oneshot$sigma_l))
     ci <- data.frame(
         lower = lower,
         upper = upper
@@ -294,7 +350,7 @@ get_bayes_linreg_ci_normal <- function(params_oneshot, alpha = 0.05) {
 #'
 #' @export
 tidy_results <- function(params_oneshot, use_local_intercepts) {
-    params_oneshot_all <- rbind(params_oneshot$beta, sigma2 = params_oneshot$dispersion)
+    params_oneshot_all <- rbind(params_oneshot$beta_l, sigma2 = params_oneshot$dispersion)
     if (use_local_intercepts) {
         params_oneshot_all <- params_oneshot_all[!grepl("Intercept_\\d+$", rownames(params_oneshot_all)), ,
                                                 drop = FALSE]
@@ -337,8 +393,8 @@ get_reduced_params <- function(center_identity, params_oneshot, bstats, family) 
         lambda_minus_l <- params_oneshot$lambda_l - bstats[[l]]$xx
         a_minus_l <- params_oneshot$a_l - bstats[[l]]$n
         beta_minus_l <- solve(lambda_minus_l) %*% (params_oneshot$lambda_l
-            %*% params_oneshot$beta - bstats[[l]]$xy)
-        blb_full <- t(params_oneshot$beta) %*% params_oneshot$lambda_l %*% params_oneshot$beta
+            %*% params_oneshot$beta_l - bstats[[l]]$xy)
+        blb_full <- t(params_oneshot$beta_l) %*% params_oneshot$lambda_l %*% params_oneshot$beta_l
         blb_local <- t(beta_minus_l) %*% lambda_minus_l %*% beta_minus_l
         b_minus_l <- params_oneshot$b_l + 0.5 * (blb_full - blb_local - bstats[[l]]$yy)
 
@@ -349,10 +405,10 @@ get_reduced_params <- function(center_identity, params_oneshot, bstats, family) 
             "b_minus_l" = b_minus_l
         ))
     } else if (family == "binomial") {
-        delta_1s <- solve(params_oneshot$sigma)
+        delta_1s <- solve(params_oneshot$sigma_l)
         delta_l <- solve(bstats[[l]]$sigma)
         sigma_minus_l <- solve(delta_1s - delta_l)
-        beta_minus_l <- sigma_minus_l %*% (delta_1s %*% params_oneshot$beta - delta_l %*% bstats[[l]]$beta)
+        beta_minus_l <- sigma_minus_l %*% (delta_1s %*% params_oneshot$beta_l - delta_l %*% bstats[[l]]$beta)
 
         return(list( # nolint: return_linter.
             "sigma_minus_l" = sigma_minus_l,
