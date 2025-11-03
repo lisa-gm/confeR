@@ -115,7 +115,8 @@ bayes_lin_reg_stats <- function(mat, outcome, covariates, weights = NULL, k = 0,
 #' @param alpha Numeric. Significance level for credible intervals. Default
 #'   0.05.
 #'
-#' @return List with beta hat and credible intervals.
+#' @return Dataframe with estimated beta hat and lower, upper limits of credible
+#'   intervals.
 #'
 #' @author Peter Degen
 #'
@@ -161,7 +162,9 @@ bayes_local_glm <- function(bstats, center_identity, family, alpha=0.05) {
     ci <- data.frame(
         lower = lower,
         upper = upper)
-    list("beta_hat" = beta_hat, "ci" = ci)
+
+    ci$Estimate <- beta_hat
+    ci
 
     # TO DO: test this function by asserting equivalence to glm
     # fit <- glm(model, family, data_split[[1]])
