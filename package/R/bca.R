@@ -104,9 +104,9 @@ bayes_lin_reg_stats <- function(mat, outcome, covariates, weights = NULL, k = 0,
     )
 }
 
-#' @title Local params
+#' @title Get site local estimates
 #'
-#' @description Compute local glm parameters from summary statistics.
+#' @description Estimate local glm parameters from summary statistics for one site.
 #'
 #' @param bstats List of summary statistics from each local site, e.g. obbject
 #'   returned by `bca_iterate_sites`.
@@ -164,6 +164,9 @@ bayes_local_glm <- function(bstats, center_identity, family, alpha=0.05) {
         upper = upper)
 
     ci$Estimate <- beta_hat
+    ci$site <- center_identity
+    ci$Covariate <- rownames(ci)
+    ci["Covariate"][ci["Covariate"] == "Intercept"] <- "(Intercept)"
     ci
 
     # TO DO: test this function by asserting equivalence to glm
@@ -294,7 +297,7 @@ bca_oneshot <- function(bstats, n_sites, use_local_intercepts, use_local_varianc
         beta <- lapply(bstats, function(x) unlist(unname(x["beta"])))
         sigma <- lapply(bstats, function(x) x[["sigma"]])
         updated_params <- update_normal_known_variance(beta, sigma)
-        params_oneshot$sigma <- updated_params$sigma
+        params_oneshot$sigma_l <- updated_params$sigma
         params_oneshot$beta_l <- updated_params$beta
     } else {
         print("Bayesian linear regression")
@@ -360,7 +363,7 @@ tidy_results <- function(params_oneshot, use_local_intercepts) {
     }
     df <- data.frame(t(params_oneshot_all), check.names = FALSE) # prevent renaming (Intercept) to X.Intercept.
     df$Method <- "BCA"
-    df <- df |> tidyr::pivot_longer(-Method, names_to = "Covariate",  # nolint: object_usage_linter.
+    df <- df |> tidyr::pivot_longer(-.data$Method, names_to = "Covariate",
                                     values_to = "Estimate")
 
     params_oneshot$CI$Method <- "BCA"
@@ -369,6 +372,7 @@ tidy_results <- function(params_oneshot, use_local_intercepts) {
     }
 
     df_merged <- dplyr::left_join(df, params_oneshot$CI, by = c("Method", "Covariate"))
+    df_merged["Covariate"][df_merged["Covariate"] == "Intercept"] <- "(Intercept)"
     df_merged
 }
 

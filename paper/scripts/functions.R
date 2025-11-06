@@ -282,7 +282,7 @@ fit_pda <- function(target, covariates, use_local_intercepts, data_split, sites,
 }
 
 
-tidy_pda <- function(fit.pda, family, use_local_intercepts, covariates_local, n_centers, alpha=0.05) {
+tidy_pda <- function(fit.pda, family, use_local_intercepts, covariates_local, n_centers, n_data, alpha=0.05) {
 
     z <- qnorm(1 - alpha / 2)
 
@@ -314,14 +314,16 @@ tidy_pda <- function(fit.pda, family, use_local_intercepts, covariates_local, n_
         df_pda$Estimate <- fit.pda$bhat
         df_pda$Method <- "PDA"
         df_pda$Covariate <- fit.pda$risk_factor
-        row <- list(NA, NA, fit.pda$sigmahat, "PDA", "sigma2")
+        row <- list(NA, NA, fit.pda$sigmahat^2, "PDA", "sigma2")
         df_sigma2 <- as.data.frame(row, stringsAsFactors = FALSE)
         colnames(df_sigma2) <- colnames(df_pda)
         df_pda <- rbind(df_pda, df_sigma2)
 
     } else {
-        #vcov_mat <- solve(fit.pda$Htilde)
-        se <- sqrt(diag(fit.pda$Htilde))
+        # https://github.com/Penncil/pda/blob/master/R/ODAL.R
+        # setilde=sqrt(diag(solve(sol$hessian))/N
+        vcov <- solve(fit.pda$Htilde)
+        se <- sqrt(diag(vcov) / n_data)
 
         # Wald confidence intervals
         lower <- fit.pda$btilde - z * se
@@ -333,7 +335,11 @@ tidy_pda <- function(fit.pda, family, use_local_intercepts, covariates_local, n_
         )
         df_pda$Estimate <- fit.pda$btilde
         df_pda$Method <- "PDA"
-        df_pda$Covariate <- fit.pda$risk_factor
+
+        if (!is.null(fit.pda$risk_factor))
+            df_pda$Covariate <- fit.pda$risk_factor
+        else
+            df_pda$Covariate <- c("(Intercept)", covariates_local)
     }
 
     df_pda

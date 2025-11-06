@@ -1,0 +1,198 @@
+# Build a diamond data frame for forest plot
+make_diamond <- function(df, half_height = 0.15) {
+  # df must contain: Estimate, lower, upper, site, Covariate
+  # We create four vertices for each row:
+  # (lower , y) → (Estimate , y‑offset) → (upper , y) → (Estimate , y+offset)
+
+  df$Estimate_again <- df$Estimate
+  x <- df |> dplyr::select(c("lower", "Estimate", "upper", "Estimate_again"))
+  x <- c(t(x))
+
+  data.frame(
+    Covariate = rep(df$Covariate, each = 4),
+    site      = rep(df$site,      each = 4),
+    x = x,
+    y         = c(0,
+                  0 - half_height,
+                  0,
+                  0 + half_height)
+  )
+}
+
+#' @title Prepare forest plot
+#'
+#' @description Get clean dataframe with local glm parameters from summary statistics for all
+#'   sites plus the federated BCA estimates.
+#'
+#' @param df_bca Dataframe with BCA estimates returned by `tidy_results`.
+#' @param bstats List of summary statistics from each local site, e.g. obbject
+#'   returned by `bca_iterate_sites`.
+#' @param data_split List, each element containing a dataframe with the data.
+#'   from a local site.
+#' @param alpha Numeric. Significance level for credible intervals. Default
+#'   0.05.
+#'
+#' @return Dataframe with parameter estimates and confidence intervals for all
+#'   sites and covariates.
+#'
+#' @author Peter Degen
+#'
+#' @export
+prepare_forest_plot <- function(df_bca, bstats, data_split, alpha=0.05) {
+    out_list <- vector("list", length(data_split))
+
+    for (i in seq_along(data_split)) {
+        bl <- bayes_local_glm(bstats, i, family, alpha = alpha)
+        out_list[[i]] <- bl
+    }
+
+    df_bca$site <- "Federated"
+    out_list[[i+1]] <- dplyr::select(df_bca, !"Method") |> filter(.data$Covariate != "sigma2")
+    df_forest <- do.call(rbind, out_list)
+    df_forest <- df_forest[!startsWith(df_forest$Covariate, "Intercept_"), ]
+    rownames(df_forest) <- seq_len(nrow(df_forest))
+    df_forest
+}
+
+#' @title Multivariate forest plot
+#'
+#' @description Creates a forest plot with a facet for each covariate.
+#'   Optionally prints Box's prior predictive tail probability for each site.
+#'
+#' @param df_forest Dataframe returned by `prepare_forest_plot`.
+#' @param pboxes Optional numeric vector of Box p-values, contained in list
+#'   returned by `box_check_all_sites`.
+#' @param outfile Optional character. If not null, save figure in this file.
+#' @param alpha Numeric. Significance level for credible intervals. Default
+#'   0.05.
+#' @param nrow Numeric. (default: 1)
+#' @param inline_plot Logical. If TRUE, adjust width and height of inline plot
+#'   in Jupyter notebooks using `options()`. (default: FALSE)
+#'
+#' @return ggplot2 object.
+#'
+#' @author Peter Degen
+#'
+#' @export
+forest_plot <- function(df_forest,
+                        pboxes=NULL,
+                        outfile=NULL,
+                        alpha=0.05,
+                        nrow=1,
+                        inline_plot=FALSE
+                        ) {
+
+    require(ggplot2)
+
+    right_covariate <- sort(unique(df_forest$Covariate), decreasing = TRUE)[1]
+
+    if (!is.null(pboxes)) {
+        margins <- margin(t = 5, r = 90, b = 5, l = 5, unit = "pt")
+        p_box_df <- data.frame(
+            site   = unique(filter(df_forest, df_forest$site != "Federated")$site),
+            p_Box  = pboxes,
+            stringsAsFactors = FALSE
+        )
+        # Build a data frame that contains the p‑values *only* for that facet
+        p_box_df_right <- p_box_df |>
+            dplyr::mutate(Covariate = right_covariate) |>
+            dplyr::select(.data$Covariate, .data$site, .data$p_Box)
+
+        p_title_df <- data.frame(
+        Covariate = right_covariate,
+        site      = max(as.integer(factor(df_forest$site,
+                                        levels = rev(unique(df_forest$site))))),
+        label     = "p[Box]"                          # will be parsed as p₍Box₎
+        )
+    } else {
+        margins <- margin(t = 5, r = 5, b = 5, l = 5, unit = "pt")
+    }
+
+    color_site <- ggsci::pal_npg("nrc")(3)[3]
+    color_diamond <- ggsci::pal_npg("nrc")(2)[1]
+
+
+    ncovs <- length(unique(df_forest$Covariate))
+    nsites <- length(unique(df_forest$site)) -1
+    width <- ncovs * 3
+    height <- length(unique(df_forest$site)) / 3
+
+    if (inline_plot)
+        options(repr.plot.width = width, repr.plot.height = height, repr.plot.res = 100)
+
+    ## Plot
+    p <- ggplot(df_forest,
+        aes(x = .data$Estimate,
+            ymax = nsites+0.5,
+            ymin = -0.5,
+            y = factor(.data$site, levels = rev(unique(.data$site))))) +
+
+    geom_vline(data = subset(df_forest, df_forest$site == "Federated"),
+        aes(xintercept = .data$Estimate), linetype = "dashed", color = "grey") +
+
+    # Site estimates
+    geom_errorbarh(data = subset(df_forest, df_forest$site != "Federated"),
+            aes(xmin = .data$lower, xmax = .data$upper), height = 0.3) +
+    geom_point(
+        data = subset(df_forest, df_forest$site != "Federated"),
+        shape = 16, colour = color_site, size=3
+    ) +
+
+    ## Federated estimate
+    geom_polygon(
+        data = make_diamond(subset(df_forest, df_forest$site == "Federated")),
+        aes(x = .data$x, y = .data$y, group = interaction(.data$Covariate, .data$site)),
+        fill = color_diamond, colour = color_diamond
+    )
+
+    if (!is.null(pboxes)) {
+        p <- p +
+        ## p‑value labels only on the right‑most facet ––
+        geom_text(data = p_box_df_right,
+                #aes(label = format(p_Box, digits = 3),
+                aes(
+                    label = sprintf("%.3e", .data$p_Box),
+                    y     = factor(.data$site, levels = rev(unique(.data$site))),
+                    x     = Inf,
+                    fontface = ifelse(.data$p_Box < alpha / nrow(p_box_df),  # bold if passes Bonferroni thresh
+                                    "bold", "plain")
+                ),
+                hjust = -0.2,  # nudge a little outside the panel
+                vjust = 0.5,
+                size = 5,
+                colour = "black",
+                inherit.aes = FALSE) +
+
+        # pBox label
+        geom_text(
+            data = p_title_df,
+            aes(x = Inf,
+                y = .data$site,
+                label = .data$label),
+            hjust   = -1,
+            vjust   = -0.7,
+            size    = 5,
+            colour  = "black",
+            parse   = TRUE,  # parse string
+            inherit.aes = FALSE
+        )
+    }
+
+    p <- p + facet_wrap(~ Covariate, scales = "free_x", nrow=nrow) +
+
+    ## Make room on the right so the text isn't clipped
+    coord_cartesian(clip = "off") +                     # allow drawing outside panels
+    labs(x = "Effect estimate (95 % CI)", y = "Site") +
+    theme_minimal(base_size = 16) +
+    theme(panel.grid = element_blank(),
+        strip.text   = element_text(face = "bold"),
+        axis.text.y  = element_text(size = 15),
+        panel.border = element_rect(colour = "black", fill=NA, linewidth=0.5),
+        panel.spacing = unit(20, "pt"),
+        plot.margin  = margins)
+
+    if (!is.null(outfile)) {
+        ggsave(outfile, bg = "white", width = width, height = height)
+    }
+    p
+}
