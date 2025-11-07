@@ -165,7 +165,8 @@ bfi_sub <- function(data_split, family, target, covariates, center_name) {
     list("sub_X" = sub_X, "sub_Lambda" = sub_Lambda, "sub_fit_bfi" = sub_fit_bfi)
 }
 
-fit_bfi <- function(data_split, family, res_bfi_sub, use_local_intercepts, return_fit = FALSE) {
+fit_bfi <- function(data_split, family, res_bfi_sub, use_local_intercepts,
+                    use_local_variances, return_fit = FALSE, alpha=0.05) {
 
     if (family == "bernoulli") family <- "binomial"
 
@@ -183,50 +184,43 @@ fit_bfi <- function(data_split, family, res_bfi_sub, use_local_intercepts, retur
         priors[[l]] <- fits[[l]]$Lambda
     }
 
-    if (use_local_intercepts) {
-        Lambda_com <- inv.prior.cov(sub_X[[1]], lambda=0.01, L=length(data_split),
-                            family=family, stratified=TRUE, strat_par=1)
-        priors_all <- append(priors, list(Lambda_com))
-        BFI_fit <- bfi(theta_hats=thetahats, A_hats=Ahats, Lambda=priors_all,
-                        family=family, stratified=TRUE, strat_par=1)
-    } else {
-        Lambda_com <- inv.prior.cov(sub_X[[1]], lambda=0.01, L=length(data_split), family=family)
-        priors_all <- append(priors, list(Lambda_com))
-        BFI_fit <- bfi(theta_hats=thetahats, A_hats=Ahats, Lambda=priors_all, family=family)
-    }
+    strat_par <- if (use_local_intercepts) 1 else NULL
+    stratified <- use_local_variances || use_local_intercepts
+    if (use_local_variances && use_local_intercepts) strat_par <- 1:2
+    else if (use_local_variances) strat_par <- 2
 
-    if (return_fit) return(return_fit)
+    Lambda_com <- BFI::inv.prior.cov(sub_X[[1]], lambda=0.01, L=length(data_split),
+                        family=family, stratified=stratified, strat_par=strat_par)
+    priors_all <- append(priors, list(Lambda_com))
+    fit.bfi <- BFI::bfi(theta_hats=thetahats, A_hats=Ahats, Lambda=priors_all,
+                    family=family, stratified=stratified, strat_par=strat_par)
 
-    tidy_bfi_fit(BFI_fit, use_local_intercepts, family)
+    if (return_fit) return(fit.bfi)
+
+    tidy_bfi_fit(fit.bfi, use_local_intercepts, use_local_variances, alpha)
 }
 
-tidy_bfi_fit <- function(BFI_fit, use_local_intercepts, family) {
-    df_bfi <- as.data.frame(summary(BFI_fit)$CI)
+tidy_bfi_fit <- function(fit.bfi, use_local_intercepts, use_local_variances, alpha=0.05) {
+
+    z <- qnorm(1 - alpha / 2)
+    se <- sqrt(diag(solve(fit.bfi$A_hat)))
+
+    if (!use_local_intercepts && !use_local_variances) {
+        df_bfi <- setNames(as.data.frame(t(fit.bfi$theta_hat - z * se)), "lower")
+        df_bfi$upper <- t(fit.bfi$theta_hat + z * se)
+        df_bfi$Estimate <- t(fit.bfi$theta_hat)
+    } else {
+        df_bfi <- setNames(as.data.frame(fit.bfi$theta_hat - z * se), "lower")
+        df_bfi$upper <- fit.bfi$theta_hat + z * se
+        df_bfi$Estimate <- fit.bfi$theta_hat
+    }
+
     rownames(df_bfi) <- sub("^\\(Intercept\\)_loc(\\d+)$", "Intercept_\\1", rownames(df_bfi))
-    colnames(df_bfi)[colnames(df_bfi) == "2.5 %"] <- "lower"
-    colnames(df_bfi)[colnames(df_bfi) == " 97.5 %"] <- "upper"
+    rownames(df_bfi) <- sub("^sigma2_loc(\\d+)$", "sigma2_\\1", rownames(df_bfi))
 
     df_bfi$Method <- "BFI"
     df_bfi$Covariate <- rownames(df_bfi)
     rownames(df_bfi) <- NULL
-
-    # add dispersion
-    if (family == "gaussian") {
-
-        df_bfi$Estimate <- BFI_fit$theta_hat[-length(BFI_fit$theta_hat)]
-
-        if (use_local_intercepts) {
-            sigma2 <- BFI_fit$theta_hat[["sigma2"]]
-        } else {
-            sigma2 <- as.data.frame(BFI_fit$theta_hat)$sigma2
-        }
-        row <- list(NA_real_, NA_real_, "BFI", "sigma2", sigma2)
-        df_sigma2 <- as.data.frame(row, stringsAsFactors = FALSE)
-        colnames(df_sigma2) <- colnames(df_bfi)
-        df_bfi <- rbind(df_bfi, df_sigma2)
-    } else {
-        df_bfi$Estimate <- t(BFI_fit$theta_hat)
-    }
 
     df_bfi
 }

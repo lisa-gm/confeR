@@ -191,11 +191,11 @@ bayes_lin_reg_post_params <- function(bayes_stats_list, prior_params, use_local_
     beta_l <- solve(lambda_l) %*% (lambda0 %*% mu0 + sum_xy)
 
     if (use_local_variances) {
-        # Assumes reference prior is used!
+        # TO DO: Assumes reference prior is used!
         a_l <- list()
         b_l <- list()
         for (l in seq_along(bayes_stats_list)) {
-            a_l[[l]] <- bayes_stats_list[[l]]$n / 2
+            a_l[[l]] <- a0 + bayes_stats_list[[l]]$n/2
             xx <- bayes_stats_list[[l]]$xx
             xy <- bayes_stats_list[[l]]$xy
             beta_l_l <- solve(xx) %*% xy
