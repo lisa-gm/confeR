@@ -398,7 +398,7 @@ get_reduced_params <- function(center_identity, params_oneshot, bstats, family) 
 
     if (family == "gaussian") {
         lambda_minus_l <- params_oneshot$lambda_l - bstats[[l]]$xx
-        a_minus_l <- params_oneshot$a_l - bstats[[l]]$n
+        a_minus_l <- params_oneshot$a_l - bstats[[l]]$n/2
         beta_minus_l <- solve(lambda_minus_l) %*% (params_oneshot$lambda_l
             %*% params_oneshot$beta_l - bstats[[l]]$xy)
         blb_full <- t(params_oneshot$beta_l) %*% params_oneshot$lambda_l %*% params_oneshot$beta_l
@@ -408,7 +408,7 @@ get_reduced_params <- function(center_identity, params_oneshot, bstats, family) 
         return(list( # nolint: return_linter.
             "lambda_minus_l" = lambda_minus_l,
             "a_minus_l" = a_minus_l,
-            "beta_minus_l" = t(beta_minus_l),
+            "beta_minus_l" = beta_minus_l,
             "b_minus_l" = b_minus_l
         ))
     } else if (family == "binomial") {
@@ -419,7 +419,7 @@ get_reduced_params <- function(center_identity, params_oneshot, bstats, family) 
 
         return(list( # nolint: return_linter.
             "sigma_minus_l" = sigma_minus_l,
-            "beta_minus_l" = t(beta_minus_l)
+            "beta_minus_l" = beta_minus_l
         ))
     }
 }
@@ -476,7 +476,7 @@ get_pred_prob <- function(center_identity, bstats, local_sigma2s, covariates,
         lambda_minus_l_cov <- rp$lambda_minus_l[(n_sites + 1):(n_sites + m), (n_sites + 1):(n_sites + m)]
     } else {
         xy <- bl$xy
-        beta_minus_l_cov <- t(rp$beta_minus_l)
+        beta_minus_l_cov <- rp$beta_minus_l
         lambda_minus_l_cov <- rp$lambda_minus_l
     }
 
@@ -517,7 +517,7 @@ box_check_all_sites <- function(data_split, params_oneshot, bstats, family, loca
         )
         list(
             pbox = pbox,
-            beta_minus_l = reduced_params_l$beta_minus_l
+            beta_minus_l = t(reduced_params_l$beta_minus_l)
         )
     })
 
