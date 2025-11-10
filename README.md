@@ -33,12 +33,11 @@ the working directory to `./paper` when running R interactively).
 - Dockerize
 - Improve documentation
 - Package name
-- Summary figure
 - Package README
 - Tests
 - Box check for glm
 - Local intercepts for glm
 - Support user-supplied prior
-- Local center stats computation
 - Local residual variances
 - Box probability compute local sigma2
+- Check weighted updates, LMM
