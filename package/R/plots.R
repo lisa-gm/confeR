@@ -68,6 +68,7 @@ prepare_forest_plot <- function(df_bca, bstats, data_split, alpha=0.05) {
 #' @param inline_plot Logical. If TRUE, adjust width and height of inline plot
 #'   in Jupyter notebooks using `options()`. (default: FALSE)
 #' @param use_log_scale Logical. If TRUE, print pbox as an S-value, i.e. -log2(pbox) (default: FALSE)
+#' @param order_box?FALSE Logical. If TRUE, order sites by p-Box. (default: FALSE)
 #'
 #' @return ggplot2 object.
 #'
@@ -80,7 +81,8 @@ forest_plot <- function(df_forest,
                         alpha=0.05,
                         nrow=1,
                         inline_plot=FALSE,
-                        use_log_scale=FALSE
+                        use_log_scale=FALSE,
+                        order_box=FALSE
                         ) {
 
     require(ggplot2)
@@ -118,6 +120,10 @@ forest_plot <- function(df_forest,
     color_site <- ggsci::pal_npg("nrc")(3)[3]
     color_diamond <- ggsci::pal_npg("nrc")(2)[1]
 
+    if (order_box) {
+        p_box_df_right <- p_box_df_right[order(p_box_df_right$p_Box),]
+        df_forest <- df_forest[order(match(df_forest$site, p_box_df_right$site, nomatch = Inf)), ]
+    }
 
     ncovs <- length(unique(df_forest$Covariate))
     nsites <- length(unique(df_forest$site)) -1
