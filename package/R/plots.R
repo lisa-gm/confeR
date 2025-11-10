@@ -31,7 +31,6 @@ make_diamond <- function(df, half_height = 0.15) {
 #'   from a local site.
 #' @param alpha Numeric. Significance level for credible intervals. Default
 #'   0.05.
-#'
 #' @return Dataframe with parameter estimates and confidence intervals for all
 #'   sites and covariates.
 #'
@@ -42,7 +41,7 @@ prepare_forest_plot <- function(df_bca, bstats, data_split, alpha=0.05) {
     out_list <- vector("list", length(data_split))
 
     for (i in seq_along(data_split)) {
-        bl <- bayes_local_glm(bstats, i, family, alpha = alpha)
+        bl <- confeR::bayes_local_glm(bstats, i, family, alpha = alpha)
         out_list[[i]] <- bl
     }
 
@@ -68,6 +67,7 @@ prepare_forest_plot <- function(df_bca, bstats, data_split, alpha=0.05) {
 #' @param nrow Numeric. (default: 1)
 #' @param inline_plot Logical. If TRUE, adjust width and height of inline plot
 #'   in Jupyter notebooks using `options()`. (default: FALSE)
+#' @param use_log_scale Logical. If TRUE, print pbox as an S-value, i.e. -log2(pbox) (default: FALSE)
 #'
 #' @return ggplot2 object.
 #'
@@ -79,15 +79,22 @@ forest_plot <- function(df_forest,
                         outfile=NULL,
                         alpha=0.05,
                         nrow=1,
-                        inline_plot=FALSE
+                        inline_plot=FALSE,
+                        use_log_scale=FALSE
                         ) {
 
     require(ggplot2)
 
     right_covariate <- sort(unique(df_forest$Covariate), decreasing = TRUE)[1]
+    pbox_thresh <- alpha / length(pboxes)
+
+    if (use_log_scale) {
+        pbox_thresh <- -log2(pbox_thresh)
+        pboxes <- -log2(pboxes)
+    }
 
     if (!is.null(pboxes)) {
-        margins <- margin(t = 5, r = 90, b = 5, l = 5, unit = "pt")
+        margins <- margin(t = 5, r = 70, b = 5, l = 5, unit = "pt")
         p_box_df <- data.frame(
             site   = unique(filter(df_forest, df_forest$site != "Federated")$site),
             p_Box  = pboxes,
@@ -102,7 +109,7 @@ forest_plot <- function(df_forest,
         Covariate = right_covariate,
         site      = max(as.integer(factor(df_forest$site,
                                         levels = rev(unique(df_forest$site))))),
-        label     = "p[Box]"                          # will be parsed as p₍Box₎
+        label     = ifelse(use_log_scale, "~~~~s[Box]", "~~~~p[Box]")                          # will be parsed as p₍Box₎
         )
     } else {
         margins <- margin(t = 5, r = 5, b = 5, l = 5, unit = "pt")
@@ -146,30 +153,32 @@ forest_plot <- function(df_forest,
     )
 
     if (!is.null(pboxes)) {
+        if (use_log_scale)
+            fontface <- ifelse(p_box_df_right$p_Box > pbox_thresh, "bold", "plain")
+        else
+            fontface <- ifelse(p_box_df_right$p_Box < pbox_thresh, "bold", "plain")
         p <- p +
-        ## p‑value labels only on the right‑most facet ––
+        ## p‑value labels only on the right‑most facet
         geom_text(data = p_box_df_right,
                 #aes(label = format(p_Box, digits = 3),
                 aes(
-                    label = sprintf("%.3e", .data$p_Box),
+                    label = sprintf("    %.2f", .data$p_Box),
                     y     = factor(.data$site, levels = rev(unique(.data$site))),
                     x     = Inf,
-                    fontface = ifelse(.data$p_Box < alpha / nrow(p_box_df),  # bold if passes Bonferroni thresh
-                                    "bold", "plain")
+                    fontface = fontface,
                 ),
-                hjust = -0.2,  # nudge a little outside the panel
+                hjust = 0,
                 vjust = 0.5,
                 size = 5,
                 colour = "black",
                 inherit.aes = FALSE) +
-
         # pBox label
         geom_text(
             data = p_title_df,
             aes(x = Inf,
                 y = .data$site,
                 label = .data$label),
-            hjust   = -1,
+            hjust   = 0,
             vjust   = -0.7,
             size    = 5,
             colour  = "black",
