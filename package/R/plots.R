@@ -1,3 +1,29 @@
+# Reduce local intercepts extended covariate matrix
+bca_oneshot_remove_local_intercepts <- function(bstats, center_identity, family, alpha = 0.05) {
+    bs <- bstats[[center_identity]]
+    xx <- bs$xx
+    xy <- bs$xy
+    yy <- bs$yy
+    n <- bs$n
+
+    keep_intercept <- paste0("^Intercept_", center_identity, "$")
+    drop_pattern   <- "^Intercept_.*$"
+    drop_rows_cols <- grep(drop_pattern, colnames(xx), value = TRUE)
+    drop_rows_cols <- setdiff(drop_rows_cols, grep(keep_intercept,
+                                                drop_rows_cols,
+                                                value = TRUE))
+
+    if (length(drop_rows_cols) > 0) {
+        xx <- xx[!rownames(xx) %in% drop_rows_cols, !colnames(xx) %in% drop_rows_cols, drop = FALSE]
+        rnxy <- rownames(xy)[!rownames(xy) %in% drop_rows_cols]
+        xy <- as.matrix(xy[rownames(xy) %in% rnxy])
+        rownames(xy) <- rnxy
+    }
+    bs_clean <- list(list("xx"=xx, "xy"=xy, "yy"=yy, "n"=n))
+    confeR::bca_oneshot(bs_clean, n_sites=1, FALSE, FALSE, family, alpha = alpha)
+}
+
+
 # Build a diamond data frame for forest plot
 make_diamond <- function(df, half_height = 0.15) {
   # df must contain: Estimate, lower, upper, site, Covariate
@@ -27,29 +53,30 @@ make_diamond <- function(df, half_height = 0.15) {
 #' @param df_bca Dataframe with BCA estimates returned by `tidy_results`.
 #' @param bstats List of summary statistics from each local site, e.g. obbject
 #'   returned by `bca_iterate_sites`.
-#' @param data_split List, each element containing a dataframe with the data.
-#'   from a local site.
 #' @param alpha Numeric. Significance level for credible intervals. Default
 #'   0.05.
+#' 
 #' @return Dataframe with parameter estimates and confidence intervals for all
 #'   sites and covariates.
 #'
 #' @author Peter Degen
 #'
 #' @export
-prepare_forest_plot <- function(df_bca, bstats, data_split, alpha=0.05) {
-    out_list <- vector("list", length(data_split))
+prepare_forest_plot <- function(df_bca, bstats, alpha=0.05) {
+    out_list <- vector("list", length(bstats))
 
-    for (i in seq_along(data_split)) {
-        bl <- confeR::bayes_local_glm(bstats, i, family, alpha = alpha)
+    for (i in seq_along(bstats)) {
+        bl <- bca_oneshot_remove_local_intercepts(bstats, i, family, alpha = alpha)
+        bl <- confeR::tidy_results(bl, use_local_intercepts=FALSE)
+        bl$Method <- NULL
+        bl$site <- i
         out_list[[i]] <- bl
     }
 
     df_bca$site <- "Federated"
-    out_list[[i+1]] <- dplyr::select(df_bca, !"Method") |> filter(.data$Covariate != "sigma2")
+    out_list[[i+1]] <- dplyr::select(df_bca, !"Method")
     df_forest <- do.call(rbind, out_list)
     df_forest <- df_forest[!startsWith(df_forest$Covariate, "Intercept_"), ]
-    rownames(df_forest) <- seq_len(nrow(df_forest))
     df_forest
 }
 
@@ -68,7 +95,7 @@ prepare_forest_plot <- function(df_bca, bstats, data_split, alpha=0.05) {
 #' @param inline_plot Logical. If TRUE, adjust width and height of inline plot
 #'   in Jupyter notebooks using `options()`. (default: FALSE)
 #' @param use_log_scale Logical. If TRUE, print pbox as an S-value, i.e. -log2(pbox) (default: FALSE)
-#' @param order_box?FALSE Logical. If TRUE, order sites by p-Box. (default: FALSE)
+#' @param order_box FALSE Logical. If TRUE, order sites by p-Box. (default: FALSE)
 #'
 #' @return ggplot2 object.
 #'
@@ -86,6 +113,7 @@ forest_plot <- function(df_forest,
                         ) {
 
     require(ggplot2)
+    require(ggsci)
 
     right_covariate <- sort(unique(df_forest$Covariate), decreasing = TRUE)[1]
     pbox_thresh <- alpha / length(pboxes)
@@ -111,7 +139,7 @@ forest_plot <- function(df_forest,
         Covariate = right_covariate,
         site      = max(as.integer(factor(df_forest$site,
                                         levels = rev(unique(df_forest$site))))),
-        label     = ifelse(use_log_scale, "~~~~s[Box]", "~~~~p[Box]")                          # will be parsed as p₍Box₎
+        label     = ifelse(use_log_scale, "~~~~s[Box]", "~~~~p[Box]") # will be parsed as p₍Box₎
         )
     } else {
         margins <- margin(t = 5, r = 5, b = 5, l = 5, unit = "pt")
@@ -121,7 +149,7 @@ forest_plot <- function(df_forest,
     color_diamond <- ggsci::pal_npg("nrc")(2)[1]
 
     if (order_box) {
-        p_box_df_right <- p_box_df_right[order(p_box_df_right$p_Box),]
+        p_box_df_right <- p_box_df_right[order(p_box_df_right$p_Box), ]
         df_forest <- df_forest[order(match(df_forest$site, p_box_df_right$site, nomatch = Inf)), ]
     }
 

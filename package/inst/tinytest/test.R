@@ -21,31 +21,20 @@ p <- length(covariates)
 
 bstats <- bca_iterate_sites(outcome, covariates, model, family, data_split, use_local_intercepts, center_name)
 params_oneshot <- bca_oneshot(bstats, n_centers, use_local_intercepts, use_local_variances, family,
-                                covariates, epsilon = 1e-10, center_name)
-
-### Test local BCA
-center_identity <- 1
-fit.bca.local <- bayes_local_glm(bstats, center_identity=center_identity, family=family, alpha=0.05)
-fit.glm.local <- glm(data=data_split[[center_identity]], formula = model)
-a <- as.vector(fit.bca.local$Estimate)
-b <- as.vector(fit.glm.local$coefficients)
-
-expect_equal(a, b,
-             info = "bayes_local_glm() should return same as glm()")
-
-
+                              epsilon = 1e-10, center_name)
 
 ### Test reduced params from Reverse-Bayes
 
 params_minus_l_reverse <- get_reduced_params(center_identity, params_oneshot, bstats, family)
-params_minus_l_forward <- bca_oneshot(bstats[-center_identity], n_centers-1, use_local_intercepts, use_local_variances, family,
-                                covariates, epsilon = 1e-10, center_name)
+params_minus_l_forward <- bca_oneshot(bstats[-center_identity], n_centers-1,
+                                use_local_intercepts, use_local_variances, family,
+                                epsilon = 1e-10, center_name)
 
-expect_equal(params_minus_l_reverse$lambda_minus_l, params_minus_l_forward$lambda_l,
+tinytest::expect_equal(params_minus_l_reverse$lambda_minus_l, params_minus_l_forward$lambda_l,
             info = "Reverse-Bayes should return identical results as Forward-Bayes minus l")
-expect_equal(params_minus_l_reverse$beta_minus_l, params_minus_l_forward$beta_l,
+tinytest::expect_equal(params_minus_l_reverse$beta_minus_l, params_minus_l_forward$beta_l,
             info = "Reverse-Bayes should return identical results as Forward-Bayes minus l")
-expect_equal(params_minus_l_reverse$a_minus_l, params_minus_l_forward$a_l,
+tinytest::expect_equal(params_minus_l_reverse$a_minus_l, params_minus_l_forward$a_l,
             info = "Reverse-Bayes should return identical results as Forward-Bayes minus l")
-expect_equal(params_minus_l_reverse$b_minus_l, params_minus_l_forward$b_l,
+tinytest::expect_equal(params_minus_l_reverse$b_minus_l, params_minus_l_forward$b_l,
             info = "Reverse-Bayes should return identical results as Forward-Bayes minus l")

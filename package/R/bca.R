@@ -61,6 +61,7 @@ bca_iterate_sites <- function(outcome, covariates, model, family, data_split,
     bstats
 }
 
+#' @export
 bayes_lin_reg_stats <- function(mat, outcome, covariates, weights = NULL, k = 0, n_sites = 0) {
     # Compute summary statistics for Bayesian linear regression
 
@@ -104,76 +105,7 @@ bayes_lin_reg_stats <- function(mat, outcome, covariates, weights = NULL, k = 0,
     )
 }
 
-#' @title Get site local estimates
-#'
-#' @description Estimate local glm parameters from summary statistics for one site.
-#'
-#' @param bstats List of summary statistics from each local site, e.g. obbject
-#'   returned by `bca_iterate_sites`.
-#' @param center_identity The id of the site to be removed.
-#' @param family Family to pass to glm() call, e.g. "gaussian".
-#' @param alpha Numeric. Significance level for credible intervals. Default
-#'   0.05.
-#'
-#' @return Dataframe with estimated beta hat and lower, upper limits of credible
-#'   intervals.
-#'
-#' @author Peter Degen
-#'
 #' @export
-bayes_local_glm <- function(bstats, center_identity, family, alpha=0.05) {
-    bs <- bstats[[center_identity]]
-    xx <- bs$xx
-    xy <- bs$xy
-    yy <- bs$yy
-    n <- bs$n
-
-    keep_intercept <- paste0("^Intercept_", center_identity, "$")
-    drop_pattern   <- "^Intercept_.*$"
-    drop_rows_cols <- grep(drop_pattern, colnames(xx), value = TRUE)
-    drop_rows_cols <- setdiff(drop_rows_cols, grep(keep_intercept,
-                                                    drop_rows_cols,
-                                                    value = TRUE))
-
-    if (length(drop_rows_cols) > 0) {
-        xx <- xx[!rownames(xx) %in% drop_rows_cols, !colnames(xx) %in% drop_rows_cols, drop = FALSE]
-        rnxy <- rownames(xy)[!rownames(xy) %in% drop_rows_cols]
-        xy <- as.matrix(xy[rownames(xy) %in% rnxy])
-        rownames(xy) <- rnxy
-    }
-
-    m <- nrow(xx)  # includes intercept
-    beta_hat <- solve(xx) %*% xy
-
-    z <- stats::qnorm(1 - alpha / 2) # ≈ 1.96 for 95% CI
-
-    if (family == "gaussian") {
-        a_hat <- 0.5 * (n-m)
-        b_hat <- 0.5 * (yy - t(beta_hat) %*% xx %*% beta_hat)
-        b_hat <- as.numeric(b_hat)
-        tau_hat <- a_hat / b_hat
-        sigma_hat <- solve(tau_hat * xx)
-    } else {
-        sigma_hat <- solve(xx)
-    }
-
-    lower <- beta_hat - z * sqrt(diag(sigma_hat))
-    upper <- beta_hat + z * sqrt(diag(sigma_hat))
-    ci <- data.frame(
-        lower = lower,
-        upper = upper)
-
-    ci$Estimate <- beta_hat
-    ci$site <- center_identity
-    ci$Covariate <- rownames(ci)
-    ci["Covariate"][ci["Covariate"] == "Intercept"] <- "(Intercept)"
-    ci
-
-    # TO DO: test this function by asserting equivalence to glm
-    # fit <- glm(model, family, data_split[[1]])
-    # ci <- confint(fit, level = 1-alpha)
-}
-
 bayes_lin_reg_post_params <- function(bayes_stats_list, prior_params, use_local_variances = FALSE) {
     # Compute posterior parameters for Bayesian linear regression
 
@@ -215,6 +147,7 @@ bayes_lin_reg_post_params <- function(bayes_stats_list, prior_params, use_local_
     )
 }
 
+#' @export
 bayes_lin_reg_post_map <- function(params_oneshot) {
     # Compute maximum a posteriori estimates for Bayesian linear regression
     beta_l <- params_oneshot$beta_l
@@ -226,6 +159,7 @@ bayes_lin_reg_post_map <- function(params_oneshot) {
     list("beta_l" = beta_l, "sigma_l" = sigma_l, "lambda_l" = lambda_l)
 }
 
+#' @export
 get_linreg_prior <- function(covariates, use_local_intercepts, n_sites, epsilon = 1e-10) {
     # Define prior for Bayesian linear regression
     if (use_local_intercepts) {
@@ -265,7 +199,6 @@ get_linreg_prior <- function(covariates, use_local_intercepts, n_sites, epsilon 
 #' @param use_local_variances Logical. If true, use fixed site-specific residual
 #'   variances for each local site.
 #' @param family Family to pass to glm() call, e.g. "gaussian".
-#' @param covariates Vector of covariate names.
 #' @param epsilon Numeric. Regularization for prior hyperparameters. Default
 #'   1e-10.
 #' @param center_name Character (optional). Name of covariate denoting site
@@ -279,15 +212,22 @@ get_linreg_prior <- function(covariates, use_local_intercepts, n_sites, epsilon 
 #'
 #' @export
 bca_oneshot <- function(bstats, n_sites, use_local_intercepts, use_local_variances, family,
-                           covariates, epsilon = 1e-10, center_name = NULL, alpha=0.05) {
+                        epsilon = 1e-10, center_name = NULL, alpha=0.05, covariates=NULL) {
     # input checks
-    if (family == "gaussian" && is.null(center_name))
-        stop("`center_name` must be supplied when `family` = `gaussian`")
+    # if (family == "gaussian" && is.null(center_name))
+    #     stop("`center_name` must be supplied when `family` = `gaussian`")
 
     params_oneshot <- list()
 
+    if (is.null(covariates)) {
+        ##print("Warning: Covariate names not supplied, trying to infer") # TO DO: print at higher log level
+        covariates <- rownames(bstats[[1]]$xy)
+        covariates <- covariates[!(covariates %in% c("Intercept", "(Intercept)"))]
+        covariates <- covariates[!startsWith(covariates, "Intercept")]
+    }
+
     if (family != "gaussian") {
-        print("Normal model known variance")
+        #print("Normal model known variance")
 
         update_normal_known_variance <- function(beta, sigma) {
             sigma_post <- solve(Reduce(`+`, lapply(sigma, solve)))
@@ -300,10 +240,8 @@ bca_oneshot <- function(bstats, n_sites, use_local_intercepts, use_local_varianc
         params_oneshot$sigma_l <- updated_params$sigma
         params_oneshot$beta_l <- updated_params$beta
     } else {
-        print("Bayesian linear regression")
-        covariates_local <- covariates[covariates != center_name]
-        prior_params <- get_linreg_prior(covariates_local, use_local_intercepts, n_sites, epsilon = epsilon)
-
+        #print("Bayesian linear regression")
+        prior_params <- get_linreg_prior(covariates, use_local_intercepts, n_sites, epsilon = epsilon)
         params_oneshot <- bayes_lin_reg_post_params(bstats, prior_params, use_local_variances)
         bayes_map <- bayes_lin_reg_post_map(params_oneshot)
         params_oneshot$beta_l <- bayes_map$beta_l
@@ -330,6 +268,7 @@ bca_oneshot <- function(bstats, n_sites, use_local_intercepts, use_local_varianc
     params_oneshot
 }
 
+#' @export
 get_bayes_ci_normal <- function(params_oneshot, alpha = 0.05) {
     # Compute credible intervals
     z <- stats::qnorm(1 - alpha / 2) # ≈ 1.96 for 95% CI
