@@ -371,21 +371,27 @@ get_reduced_params <- function(center_identity, params_oneshot, bstats, family) 
 #' @param center_identity The id of the site to be checked
 #' @param bstats List of summary statistics from each local site, e.g. obbject
 #'   returned by `bca_iterate_sites`.
-#' @param local_sigma2s Numeric vector with local residual variances from glm().
 #' @param covariates Vector of covariate names.
 #' @param n_sites Number of sites.
 #' @param reduced_params Reduced posterior parameters returnd by
 #'   `get_reduced_params`.
 #' @param use_local_intercepts Logical. If true, use fixed site-specific
 #'   intercepts for each local site.
+#' @param remove_intercept Logical. If true, ignore intercept in pbox
+#'   calculation. Default: FALSE.
 #'
 #' @return The Box prior predictive tail probability.
 #'
 #' @author Peter Degen
 #'
 #' @export
-get_pred_prob <- function(center_identity, bstats, local_sigma2s, covariates,
-                           n_sites, reduced_params, use_local_intercepts) {
+get_pred_prob <- function(center_identity, bstats, covariates,
+                           n_sites, reduced_params, use_local_intercepts, remove_intercept=FALSE) {
+
+    if (use_local_intercepts && !remove_intercept) {
+        print("Warning: removing intercept from pbox calculation when use_local_intercepts")
+        remove_intercept <- TRUE
+    }
 
     l <- center_identity
     rp <- reduced_params
@@ -394,36 +400,61 @@ get_pred_prob <- function(center_identity, bstats, local_sigma2s, covariates,
         (nu * sigma2 + 2 * b) / (nu + 2 * a)
     }
 
-    fstat <- function(beta1, beta2, xx, lambda, m, sigma2, n, a, b) {
-        nu <- n - m
+    fstat <- function(beta1, beta2, xx, lambda, nu, m_tilde, sigma2, n, a, b) {
         sp <- sigma2_pooled(sigma2, nu, a, b)
         diff <- beta1 - beta2
-        as.numeric(t(diff) %*% solve(solve(xx) + solve(lambda)) %*% diff / (m * sp))
+        as.numeric(t(diff) %*% solve(solve(xx) + solve(lambda)) %*% diff / (m_tilde * sp))
     }
 
     bl <- bstats[[l]]
     n_l <- bl$n
-    sigma2 <- local_sigma2s[[l]]
     m <- length(covariates)
+    m_tilde <- if (remove_intercept) m else m + 1  # = k in Box 1980
     xx <- bl$xx
+    xy <- bl$xy
+    yy <- bl$yy
+
+    if (use_local_intercepts) {
+        xxl <- bstats[[l]]$xx
+        last_n <- (nrow(xxl) - m + 1):nrow(xxl)
+        keep <- sort(unique(c(l, last_n)))
+        xxl <- xxl[keep, keep]
+        xyl <- xy[keep]
+        bhatl <- solve(xxl) %*% xyl
+        sigma2 <- as.numeric((yy - t(bhatl)%*%xxl%*%bhatl) / (n_l - m - 1))
+        # remove intercept
+        bhatl <- bhatl[2:nrow(bhatl), , drop = FALSE]
+    } else {
+        bhatl <- solve(xx) %*% xy
+        sigma2 <- as.numeric((yy - t(bhatl)%*%xx%*%bhatl) / (n_l - m - 1))
+    }
+
 
     # Assumes intercepts come first in covariate ordering
     if (use_local_intercepts) {
+        # double check this
         xx <- xx[(n_sites + 1):(n_sites + m), (n_sites + 1):(n_sites + m)]
         xy <- bl$xy[(n_sites + 1):(n_sites + m)]
         beta_minus_l_cov <- rp$beta_minus_l[(n_sites + 1):(n_sites + m)]
         lambda_minus_l_cov <- rp$lambda_minus_l[(n_sites + 1):(n_sites + m), (n_sites + 1):(n_sites + m)]
     } else {
-        xy <- bl$xy
-        beta_minus_l_cov <- rp$beta_minus_l
-        lambda_minus_l_cov <- rp$lambda_minus_l
+        if (remove_intercept) {
+            xx <- xx[1:m+1, 1:m+1]
+            xy <- bl$xy[1:m+1]
+            bhatl <- bhatl[1:m+1]
+            beta_minus_l_cov <- rp$beta_minus_l[1:m+1]
+            lambda_minus_l_cov <- rp$lambda_minus_l[1:m+1, 1:m+1]
+        } else {
+            xy <- bl$xy
+            beta_minus_l_cov <- rp$beta_minus_l
+            lambda_minus_l_cov <- rp$lambda_minus_l
+        }
     }
 
-    bhatl <- solve(xx) %*% xy
-    f <- fstat(bhatl, beta_minus_l_cov, xx, lambda_minus_l_cov, m, sigma2, n_l, rp$a_minus_l, rp$b_minus_l)
-    stats::pf(f, df1 = m, df2 = (n_l - m) + 2 * rp$a_minus_l, lower.tail = FALSE)
+    nu <- if (use_local_intercepts) n_l - m else n_l - m - 1
+    f <- fstat(bhatl, beta_minus_l_cov, xx, lambda_minus_l_cov, nu, m_tilde, sigma2, n_l, rp$a_minus_l, rp$b_minus_l)
+    stats::pf(f, df1 = m_tilde, df2 = (n_l - m - 1) + 2 * rp$a_minus_l, lower.tail = FALSE)
 }
-
 #' @title Box prior predictive tail probabilities for all sites
 #'
 #' @description Calculate p_Box for all sites.
@@ -433,26 +464,27 @@ get_pred_prob <- function(center_identity, bstats, local_sigma2s, covariates,
 #' @param bstats List of summary statistics from each local site, e.g. obbject
 #'   returned by `bca_iterate_sites`.
 #' @param family Family to pass to glm() call, e.g. "gaussian".
-#' @param local_sigma2s Numeric vector with local residual variances from glm().
 #' @param covariates Vector of covariate names.
 #' @param n_sites Number of sites.
 #' @param use_local_intercepts Logical. If true, use fixed site-specific
 #'   intercepts for each local site.
 #' @param center_name Character. Name of covariate denoting site identity.
+#' @param remove_intercept Logical. If true, ignore intercept in pbox
+#'   calculation. Default: FALSE.
 #'
 #' @return List with pboxes and reduced parameters for all sites.
 #'
 #' @author Peter Degen
 #'
 #' @export
-box_check_all_sites <- function(data_split, params_oneshot, bstats, family, local_sigma2s, covariates,
-                                n_sites, use_local_intercepts, center_name) {
+box_check_all_sites <- function(data_split, params_oneshot, bstats, family, covariates,
+                                n_sites, use_local_intercepts, center_name, remove_intercept=FALSE) {
 
     results <- lapply(seq_along(data_split), function(l) {
-        reduced_params_l <- get_reduced_params(l, params_oneshot, bstats, family)
+        reduced_params_l <- confeR::get_reduced_params(l, params_oneshot, bstats, family)
         pbox <- get_pred_prob(
-            l, bstats, local_sigma2s, covariates, n_sites,
-            reduced_params_l, use_local_intercepts
+            l, bstats, covariates, n_sites,
+            reduced_params_l, use_local_intercepts, remove_intercept
         )
         list(
             pbox = pbox,

@@ -169,7 +169,10 @@ forest_plot <- function(df_forest,
             y = factor(.data$site, levels = rev(unique(.data$site))))) +
 
     geom_vline(data = subset(df_forest, df_forest$site == "Federated"),
-        aes(xintercept = .data$Estimate), linetype = "dashed", color = "grey") +
+        aes(xintercept = .data$Estimate), linetype = "dashed", color = color_diamond) +
+
+    geom_vline(data = subset(df_forest, df_forest$site == "Federated"),
+        aes(xintercept = 0), linetype = "solid", color = "grey") +
 
     # Site estimates
     geom_errorbarh(data = subset(df_forest, df_forest$site != "Federated"),
