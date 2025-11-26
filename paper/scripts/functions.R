@@ -147,7 +147,7 @@ fit_combined_glmm <- function(data, family, model, model_no_int,
         coefs <- coefs |>
         rownames_to_column("Covariate") |>
         left_join(ci |> rownames_to_column("Covariate") |> select("Covariate", "lower", "upper"), by = "Covariate")
-        coefs$Method <- "Combined"
+        coefs$Method <- "Combined_RE"
         df_combined <- coefs
     } else {
 
@@ -370,9 +370,10 @@ tidy_pda <- function(fit.pda, family, use_local_intercepts, covariates, n_sites,
             upper = upper
         )
         df_pda$Estimate <- fit.pda$bhat
-        df_pda$Method <- "PDA"
+        method <- if (heterogeneity_effect=="random") "PDA_RE" else "PDA"
+        df_pda$Method <- method
         df_pda$Covariate <- fit.pda$risk_factor
-        row <- list(NA, NA, fit.pda$sigmahat^2, "PDA", "sigma2")
+        row <- list(NA, NA, fit.pda$sigmahat^2, method, "sigma2")
         df_sigma2 <- as.data.frame(row, stringsAsFactors = FALSE)
         colnames(df_sigma2) <- colnames(df_pda)
         df_pda <- rbind(df_pda, df_sigma2)
