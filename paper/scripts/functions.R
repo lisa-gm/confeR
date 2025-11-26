@@ -229,7 +229,8 @@ tidy_bfi_fit <- function(fit.bfi, use_local_intercepts, use_local_variances, alp
 
 library(pda)
 
-fit_pda <- function(target, covariates, use_local_intercepts, data_split, sites, dataname, family, dir) {
+fit_pda <- function(target, covariates, use_local_intercepts,
+                    data_split, sites, dataname, family, dir, heterogeneity_effect="fixed") {
 
     model_pda <- if (family == "gaussian") "DLM" else "ODAL"
 
@@ -239,7 +240,7 @@ fit_pda <- function(target, covariates, use_local_intercepts, data_split, sites,
                     step = "initialize",
                     sites = sites,
                     heterogeneity = use_local_intercepts,
-                    heterogeneity_effect = "fixed", # if (use_local_intercepts) "random" else "fixed",
+                    heterogeneity_effect = heterogeneity_effect, # no effect if heterogeneity false
                     model = model_pda,
                     family = family,
                     outcome = target,
@@ -276,27 +277,46 @@ fit_pda <- function(target, covariates, use_local_intercepts, data_split, sites,
 }
 
 
-tidy_pda <- function(fit.pda, family, use_local_intercepts, covariates_local, n_centers, n_data, alpha=0.05) {
+tidy_pda <- function(fit.pda, family, use_local_intercepts, covariates, n_sites, n_data, heterogeneity_effect, alpha=0.05) {
 
     z <- qnorm(1 - alpha / 2)
 
     if (family == "gaussian") {
 
-        # PDA FE always fits with global intercept and L-1 local intercepts
-        # Therefore, use global intercept as intercept 1 and add to remaining intercepts
         if (use_local_intercepts) {
-            fit.clean <- list()
-            fit.clean$sigmahat <- fit.pda$sigmahat
-            fit.clean$risk_factor <- c(
-                paste0("Intercept_", seq_len(n_centers)),
-                covariates_local
-            )
-            fit.clean$bhat <- c(fit.pda$bhat[[1]],
-                                fit.pda$bhat[[1]] + fit.pda$uhat,
-                                fit.pda$bhat[2:length(fit.pda$bhat)]
-                                )
-            fit.clean$sebhat <- c(fit.pda$sebhat[[1]], fit.pda$seuhat, fit.pda$sebhat[2:length(fit.pda$bhat)])
-            fit.pda <- fit.clean
+            # PDA FE always fits with global intercept and L-1 local intercepts
+            # Therefore, use global intercept as intercept 1 and add to remaining intercepts
+            if (heterogeneity_effect == "fixed") {
+                fit.clean <- list()
+                fit.clean$sigmahat <- fit.pda$sigmahat
+                fit.clean$risk_factor <- c(
+                    paste0("Intercept_", seq_len(n_sites)),
+                    covariates
+                )
+                fit.clean$bhat <- c(fit.pda$bhat[[1]], # global intercept == intercept 1
+                                    fit.pda$bhat[[1]] + fit.pda$uhat, # remaining intercepts
+                                    fit.pda$bhat[2:length(fit.pda$bhat)] # covariate effects
+                                    )
+                fit.clean$sebhat <- c(fit.pda$sebhat[[1]], fit.pda$seuhat, fit.pda$sebhat[2:length(fit.pda$bhat)])
+                fit.pda <- fit.clean
+
+            # PDA RE always fits with global intercept and L local intercepts
+            } else if (heterogeneity_effect == "random") {
+                fit.clean <- list()
+                fit.clean$sigmahat <- fit.pda$sigmahat
+                fit.clean$risk_factor <- c(
+                    paste0("Intercept_", seq_len(n_sites)),
+                    covariates
+                )
+                fit.clean$bhat <- c(fit.pda$bhat[[1]] + fit.pda$uhat,
+                                    fit.pda$bhat[2:length(fit.pda$bhat)]
+                                    )
+                print("Warning: ignoring global intercept sebhat (to fix)")
+                fit.clean$sebhat <- c(fit.pda$seuhat, fit.pda$sebhat[2:length(fit.pda$bhat)])
+                fit.pda <- fit.clean
+            } else {
+                stop(paste("Invalid heterogeneity effect:", heterogeneity_effect))
+            }
         }
 
         lower <- fit.pda$bhat - z * fit.pda$sebhat
