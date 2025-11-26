@@ -1,6 +1,9 @@
+library(dplyr)
+library(tibble)
 library(metafor)
 library(Matrix)
 library(BFI)
+library(lme4)
 
 ### Local fits ###
 
@@ -94,48 +97,89 @@ fit_mv_meta_random <- function(coef_list, cov_list, method="REML") {
 }
 
 ### Combined fit ###
+# glm treated as special case of glmm
+fit_combined_glmm <- function(data, family, model, model_no_int,
+                            use_local_intercepts, center_name, return_fit=FALSE, heterogeneity_effect="fixed") {
+    require(tibble)
+    require(dplyr)
 
-fit_combined_glm <- function(data, family, model, model_no_int, use_local_intercepts, center_name, return_fit=FALSE) {
     if (use_local_intercepts) {
-        # Controlled for local center
-        m_expanded <- update(model_no_int, as.formula(paste("~ . +", center_name)))
-        fit_comb_glm <- glm(m_expanded, family, data)
+            if (heterogeneity_effect=="fixed") {
+            # Controlled for local center
+            m_expanded <- update(model_no_int, as.formula(paste("~ . +", center_name)))
+            fit_comb_glmm <- glm(m_expanded, family, data)
+        } else if (heterogeneity_effect=="random") {
+            m_mixed <- update(
+                model,
+                as.formula(paste("~ . + (1 |", center_name, ") - 1"))
+            )
+            if (family == "gaussian") {
+                fit_comb_glmm <- lmer(m_mixed, data = data)
+            } else {
+                fit_comb_glmm <- glmer(m_mixed, family = family, data = data)
+            }
+        } else {
+            stop(paste("Invalid heterogeneity effect:", heterogeneity_effect))
+        }
     } else {
-        fit_comb_glm <- glm(model, family, data)
+        fit_comb_glmm <- glm(model, family, data)
     }
 
-    if (return_fit) return(fit_comb_glm)
+    if (return_fit) return(fit_comb_glmm)
 
-    sum_fit <- summary(fit_comb_glm)
+    sum_fit <- summary(fit_comb_glmm)
     coefs <- sum_fit$coefficients
-    rownames(coefs) <- sub(paste0("^", center_name), "Intercept_", rownames(coefs))
-    sum_fit$coefficients <- coefs
 
-    ci <- confint(fit_comb_glm, level = 0.95)
-    df_combined <- data.frame(
-        lower = ci[, 1],
-        upper = ci[, 2],
-        Method = "Combined"
-    )
+    if (heterogeneity_effect=="random") {
+        sum_fit <- summary(fit_comb_glmm)
+        coefs <- sum_fit$coefficients[, "Estimate"]
+        coefs <- data.frame("Estimate"=coefs)
+        re <- ranef(fit_comb_glmm)$hospital
+        colnames(re) <- "Estimate"
+        sigma2 <- data.frame("Estimate"=sigma(fit_comb_glmm)^2, row.names="sigma2")
+        coefs <- rbind(re, sigma2, coefs)
+        rownames(coefs)[seq_len(nrow(re))] <- paste0("Intercept_", seq_len(nrow(re)))
 
-    df_combined <- tibble::rownames_to_column(df_combined, var = "Covariate")
-    df_combined$Covariate <- rownames(coefs)
-    df_combined$Estimate <- as.data.frame(coefs)$Estimate
+        ci <- data.frame(confint(fit_comb_glmm,  oldNames=FALSE))
+        colnames(ci) <- c("lower", "upper")
+        ci <- rbind(ci, data.frame(ci["sigma", ]^2, row.names="sigma2"))
 
-    # Add dispersion
-    if (family == "gaussian") {
-        df_resid <- fit_comb_glm$df.residual
-        sigma2 <- sigma(fit_comb_glm)^2
-        alpha <- 0.05
+        coefs <- coefs |>
+        rownames_to_column("Covariate") |>
+        left_join(ci |> rownames_to_column("Covariate") |> select("Covariate", "lower", "upper"), by = "Covariate")
+        coefs$Method <- "Combined"
+        df_combined <- coefs
+    } else {
 
-        # https://www.graphpad.com/support/faq/the-confidence-interval-of-a-standard-deviation/
-        lower <- sigma2 * (df_resid) / qchisq(1 - alpha / 2, df = df_resid)
-        upper <- sigma2 * (df_resid) / qchisq(alpha / 2, df = df_resid)
+        rownames(coefs) <- sub(paste0("^", center_name), "Intercept_", rownames(coefs))
+        sum_fit$coefficients <- coefs
 
-        row <- list("sigma2", lower, upper, "Combined", sigma(fit_comb_glm)^2)
-        df_sigma2 <- as.data.frame(row, stringsAsFactors = FALSE)
-        colnames(df_sigma2) <- colnames(df_combined)
-        df_combined <- rbind(df_combined, df_sigma2)
+        ci <- confint(fit_comb_glmm, level = 0.95)
+        df_combined <- data.frame(
+            lower = ci[, 1],
+            upper = ci[, 2],
+            Method = "Combined"
+        )
+
+        df_combined <- rownames_to_column(df_combined, var = "Covariate")
+        df_combined$Covariate <- rownames(coefs)
+        df_combined$Estimate <- as.data.frame(coefs)$Estimate
+
+        # Add dispersion
+        if (family == "gaussian") {
+            df_resid <- fit_comb_glmm$df.residual
+            sigma2 <- sigma(fit_comb_glmm)^2
+            alpha <- 0.05
+
+            # https://www.graphpad.com/support/faq/the-confidence-interval-of-a-standard-deviation/
+            lower <- sigma2 * (df_resid) / qchisq(1 - alpha / 2, df = df_resid)
+            upper <- sigma2 * (df_resid) / qchisq(alpha / 2, df = df_resid)
+
+            row <- list("sigma2", lower, upper, "Combined", sigma(fit_comb_glmm)^2)
+            df_sigma2 <- as.data.frame(row, stringsAsFactors = FALSE)
+            colnames(df_sigma2) <- colnames(df_combined)
+            df_combined <- rbind(df_combined, df_sigma2)
+        }
     }
     df_combined
 }
