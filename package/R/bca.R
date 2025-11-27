@@ -296,10 +296,10 @@ get_bayes_ci_normal <- function(params_oneshot, alpha = 0.05) {
 #' @export
 tidy_results <- function(params_oneshot, use_local_intercepts) {
     params_oneshot_all <- rbind(params_oneshot$beta_l, sigma2 = params_oneshot$dispersion)
-    if (use_local_intercepts) {
-        params_oneshot_all <- params_oneshot_all[!grepl("Intercept_\\d+$", rownames(params_oneshot_all)), ,
-                                                drop = FALSE]
-    }
+    # if (use_local_intercepts) {
+    #     params_oneshot_all <- params_oneshot_all[!grepl("Intercept_\\d+$", rownames(params_oneshot_all)), ,
+    #                                             drop = FALSE]
+    # }
     df <- data.frame(t(params_oneshot_all), check.names = FALSE) # prevent renaming (Intercept) to X.Intercept.
     df$Method <- "BCA"
     df <- df |> tidyr::pivot_longer(-.data$Method, names_to = "Covariate",

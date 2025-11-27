@@ -58,14 +58,13 @@ eval_linear <- function(truth, data, beta, formula, use_local_intercepts) {
     list(metrics=metrics, x=x, eta=eta)
 }
 
-do_eval <- function(beta, data_split, model, outcome, use_local_intercepts) {
+do_eval <- function(beta, data, model, outcome, use_local_intercepts) {
     require(ggplot2)
     if (family == "binomial") {
-        l <- 1
-        pred_probs <- make_pred_logistic(data_split[[l]], beta[[l]], model)
+        pred_probs <- make_pred_logistic(data, beta, model)
         pred <- pred_probs$pred
         probs <- pred_probs$probs
-        truth <- data_split[[l]][[outcome]]
+        truth <- data[[outcome]]
         table(Predicted = pred, Actual = truth)
 
         eval_logistic(truth, pred, probs)
@@ -93,4 +92,42 @@ do_eval <- function(beta, data_split, model, outcome, use_local_intercepts) {
     } else {
         stop(paste0("Invalid family:", family))
     }
+}
+
+do_eval_plot <- function(df, model, outcome, data, use_local_intercepts, 
+                        title=NULL, save=FALSE, do_annotate=TRUE) {
+    require(dplyr)
+    require(ggplot2)
+    beta <- as.matrix(df |> filter(.data$Covariate != "sigma2") |> select("Estimate"))
+    rownames(beta) <- as.matrix(df |> filter(.data$Covariate != "sigma2") |> select("Covariate"))
+    res <- do_eval(beta, data, model, outcome, use_local_intercepts)
+    if (!is.null(title)) {
+
+        title <- if (use_local_intercepts) paste(title, "(local int)") else paste(title, "(global int)")
+        res$p <- res$p +
+        labs(
+            title = paste(title)
+        )
+
+        if (save) {
+            ggsave(paste0("figures_tmp/gof.", gsub(" ", "-", title), ".png"), bg = "white")
+        }
+    }
+
+    if (do_annotate) {
+        labels <- names(res$metrics)
+        values <- unlist(res$metrics)
+        lab_lines <- sprintf("%-5s %1.4f", paste0(labels, ":"), values)
+        lab <- paste(lab_lines, collapse = "\n")
+
+        res$p <- res$p +
+            annotate(
+                "label",
+                x = -Inf, y = Inf,
+                label = lab,
+                hjust = -.1, vjust = 1.1,
+                fill = "white", color = "black", family = "mono"
+            )
+    }
+    res$p
 }

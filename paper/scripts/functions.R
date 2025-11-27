@@ -35,7 +35,13 @@ fit_local_glms <- function(data_split, Method, target, covariates, center_name) 
 
 ### Meta-analysis ###
 
-fit_mv_meta_fixed <- function(coef_list, cov_list) {
+fit_mv_meta_fixed <- function(coef_list, cov_list, use_local_intercepts) {
+
+    if (use_local_intercepts) {
+        cov_list <- lapply(cov_list, function(m) m[rownames(m) != "(Intercept)", colnames(m) != "(Intercept)"])
+        local_intercepts <- lapply(coef_list, function(m) m[names(m) == "(Intercept)"])
+        coef_list <- lapply(coef_list, function(m) m[names(m) != "(Intercept)"])
+    }
 
     # Stack all coefficients
     y <- do.call(c, coef_list)
@@ -61,12 +67,34 @@ fit_mv_meta_fixed <- function(coef_list, cov_list) {
     rownames(results_meta_mv) <- NULL
     results_meta_mv$Method <- "FE"
     names(results_meta_mv)[names(results_meta_mv) == "estimate"] <- "Estimate"
+
+    if (use_local_intercepts) {
+        local_intercepts_row <- lapply(seq_along(local_intercepts), function(i) {
+            x <- local_intercepts[[i]]
+            data.frame(
+                Estimate = x,
+                lower = NaN, # TO DO
+                upper = NaN,
+                Covariate = paste0("Intercept_", i),
+                Method = "FE",
+                row.names = NULL
+            )
+        })
+        results_meta_mv <- bind_rows(results_meta_mv, local_intercepts_row)
+    }
     results_meta_mv
 }
 
-fit_mv_meta_random <- function(coef_list, cov_list, method="REML") {
+fit_mv_meta_random <- function(coef_list, cov_list, method="REML", use_local_intercepts) {
 
     stopifnot(method != "FE" && method != "EE")
+
+    # Fixed-effects site-specific estimates for local intercepts
+    if (use_local_intercepts) {
+        cov_list <- lapply(cov_list, function(m) m[rownames(m) != "(Intercept)", colnames(m) != "(Intercept)"])
+        local_intercepts <- lapply(coef_list, function(m) m[names(m) == "(Intercept)"])
+        coef_list <- lapply(coef_list, function(m) m[names(m) != "(Intercept)"])
+    }
 
     # Stack all coefficients
     y <- do.call(c, coef_list)
@@ -93,6 +121,21 @@ fit_mv_meta_random <- function(coef_list, cov_list, method="REML") {
     rownames(results_meta_mv) <- NULL
     results_meta_mv$Method <- toupper(method)
     names(results_meta_mv)[names(results_meta_mv) == "estimate"] <- "Estimate"
+
+    if (use_local_intercepts) {
+        local_intercepts_row <- lapply(seq_along(local_intercepts), function(i) {
+            x <- local_intercepts[[i]]
+            data.frame(
+                Estimate = x,
+                lower = NaN, # TO DO
+                upper = NaN,
+                Covariate = paste0("Intercept_", i),
+                Method = method,
+                row.names = NULL
+            )
+        })
+        results_meta_mv <- bind_rows(results_meta_mv, local_intercepts_row)
+    }
     results_meta_mv
 }
 
