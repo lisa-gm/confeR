@@ -142,30 +142,28 @@ fit_mv_meta_random <- function(coef_list, cov_list, method="REML", use_local_int
 ### Combined fit ###
 # glm treated as special case of glmm
 fit_combined_glmm <- function(data, family, model, model_no_int,
-                            use_local_intercepts, center_name, return_fit=FALSE, heterogeneity_effect="fixed") {
+                            center_name, return_fit=FALSE, heterogeneity_effect="fixed") {
     require(tibble)
     require(dplyr)
 
-    if (use_local_intercepts) {
-            if (heterogeneity_effect=="fixed") {
-            # Controlled for local center
-            m_expanded <- update(model_no_int, as.formula(paste("~ . +", center_name)))
-            fit_comb_glmm <- glm(m_expanded, family, data)
-        } else if (heterogeneity_effect=="random") {
-            m_mixed <- update(
-                model,
-                as.formula(paste("~ . + (1 |", center_name, ") - 1"))
-            )
-            if (family == "gaussian") {
-                fit_comb_glmm <- lmer(m_mixed, data = data)
-            } else {
-                fit_comb_glmm <- glmer(m_mixed, family = family, data = data)
-            }
+    if (heterogeneity_effect == "none") {
+        fit_comb_glmm <- glm(model, family, data)
+    } else if (heterogeneity_effect=="fixed") {
+        # Controlled for local center
+        m_expanded <- update(model_no_int, as.formula(paste("~ . +", center_name)))
+        fit_comb_glmm <- glm(m_expanded, family, data)
+    } else if (heterogeneity_effect=="random") {
+        m_mixed <- update(
+            model,
+            as.formula(paste("~ . + (1 |", center_name, ") - 1"))
+        )
+        if (family == "gaussian") {
+            fit_comb_glmm <- lmer(m_mixed, data = data)
         } else {
-            stop(paste("Invalid heterogeneity effect:", heterogeneity_effect))
+            fit_comb_glmm <- glmer(m_mixed, family = family, data = data)
         }
     } else {
-        fit_comb_glmm <- glm(model, family, data)
+        stop(paste("Invalid heterogeneity effect:", heterogeneity_effect))
     }
 
     if (return_fit) return(fit_comb_glmm)
@@ -316,7 +314,7 @@ tidy_bfi_fit <- function(fit.bfi, use_local_intercepts, use_local_variances, alp
 
 library(pda)
 
-fit_pda <- function(target, covariates, use_local_intercepts,
+fit_pda <- function(target, covariates,
                     data_split, sites, dataname, family, dir, heterogeneity_effect="fixed") {
 
     model_pda <- if (family == "gaussian") "DLM" else "ODAL"
@@ -326,7 +324,7 @@ fit_pda <- function(target, covariates, use_local_intercepts,
     control <- list(project_name = dataname,
                     step = "initialize",
                     sites = sites,
-                    heterogeneity = use_local_intercepts,
+                    heterogeneity = heterogeneity_effect != "none",
                     heterogeneity_effect = heterogeneity_effect, # no effect if heterogeneity false
                     model = model_pda,
                     family = family,
@@ -364,13 +362,13 @@ fit_pda <- function(target, covariates, use_local_intercepts,
 }
 
 
-tidy_pda <- function(fit.pda, family, use_local_intercepts, covariates, n_sites, n_data, heterogeneity_effect, alpha=0.05) {
+tidy_pda <- function(fit.pda, family, covariates, n_sites, n_data, heterogeneity_effect, alpha=0.05) {
 
     z <- qnorm(1 - alpha / 2)
 
     if (family == "gaussian") {
 
-        if (use_local_intercepts) {
+        if (heterogeneity_effect != "none") {
             # PDA FE always fits with global intercept and L-1 local intercepts
             # Therefore, use global intercept as intercept 1 and add to remaining intercepts
             if (heterogeneity_effect == "fixed") {
@@ -413,7 +411,7 @@ tidy_pda <- function(fit.pda, family, use_local_intercepts, covariates, n_sites,
             upper = upper
         )
         df_pda$Estimate <- fit.pda$bhat
-        method <- if (heterogeneity_effect=="random") "PDA_RE" else "PDA"
+        method <- if (heterogeneity_effect=="random") "PDA_RE" else "PDA_FE"
         df_pda$Method <- method
         df_pda$Covariate <- fit.pda$risk_factor
         row <- list(NA, NA, fit.pda$sigmahat^2, method, "sigma2")
@@ -436,7 +434,7 @@ tidy_pda <- function(fit.pda, family, use_local_intercepts, covariates, n_sites,
             upper = upper
         )
         df_pda$Estimate <- fit.pda$btilde
-        df_pda$Method <- "PDA"
+        df_pda$Method <- "PDA_FE"
 
         if (!is.null(fit.pda$risk_factor))
             df_pda$Covariate <- fit.pda$risk_factor
