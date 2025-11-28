@@ -1,6 +1,6 @@
 Package: confeR
 Version: 0.1
-Date: 2025-11-03
+Date: 2025-11-28
 Authors@R:
     c(person(given = "Peter",
            family = "Degen",
@@ -24,3 +24,6 @@ NeedsCompilation: no
 RoxygenNote: 7.3.3
 URL: https://gitlab.uzh.ch/crsuzh/bayseq
 BugReports: https://gitlab.uzh.ch/crsuzh/bayseq/issues
+Depends: 
+    R (>= 3.5)
+LazyData: true
