@@ -346,7 +346,7 @@ get_reduced_params <- function(center_identity, params_oneshot, bstats, family) 
             "beta_minus_l" = beta_minus_l,
             "b_minus_l" = b_minus_l
         ))
-    } else if (family == "binomial") {
+    } else {
         delta_1s <- solve(params_oneshot$sigma_l)
         delta_l <- solve(bstats[[l]]$sigma)
         sigma_minus_l <- solve(delta_1s - delta_l)
