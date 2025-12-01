@@ -20,7 +20,7 @@ bca_oneshot_remove_local_intercepts <- function(bstats, center_identity, family,
         rownames(xy) <- rnxy
     }
     bs_clean <- list(list("xx"=xx, "xy"=xy, "yy"=yy, "n"=n))
-    confeR::bca_oneshot(bs_clean, n_sites=1, FALSE, FALSE, family, alpha = alpha)
+    confeR::bca_oneshot(bs_clean, family, use_local_intercepts=FALSE, alpha=alpha)
 }
 
 
@@ -62,7 +62,7 @@ make_diamond <- function(df, half_height = 0.15) {
 #' @author Peter Degen
 #'
 #' @export
-prepare_forest_plot <- function(df_bca, bstats, alpha=0.05) {
+prepare_forest_plot <- function(df_bca, bstats, family, alpha=0.05) {
     out_list <- vector("list", length(bstats))
 
     for (i in seq_along(bstats)) {
@@ -126,7 +126,7 @@ forest_plot <- function(df_forest,
     if (!is.null(pboxes)) {
         margins <- margin(t = 5, r = 70, b = 5, l = 5, unit = "pt")
         p_box_df <- data.frame(
-            site   = unique(filter(df_forest, df_forest$site != "Federated")$site),
+            site   = unique(dplyr::filter(df_forest, df_forest$site != "Federated")$site),
             p_Box  = pboxes,
             stringsAsFactors = FALSE
         )

@@ -7,3 +7,4 @@ repos:
         language: system
         files: \.ipynb
         entry: jupyter nbconvert --clear-output --inplace
+        exclude: package/example.ipynb

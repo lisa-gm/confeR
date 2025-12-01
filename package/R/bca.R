@@ -5,30 +5,36 @@ library(invgamma)
 
 #' @title BCA iterate over local sites
 #'
-#' @description Pre-processing wrapper for BCA methods.
+#' @description Pre-processing wrapper for testing BCA methods using individual participant data.
 #'
 #' @param outcome Name of outcome y.
 #' @param covariates Vector of covariate names.
 #' @param model Formula object relating outcome to covariates.
 #' @param family Family to pass to glm() call, e.g. "gaussian".
-#' @param data_split List, each element containing a dataframe with the data.
+#' @param data_split List, each element containing a dataframe with the IPD
 #'   from a local site.
 #' @param use_local_intercepts Logical. If true, use fixed site-specific
 #'   intercepts for each local site.
-#' @param center_name Character (optional). Name of covariate denoting site identity. Must
-#'   be supplied if `use_local_intercepts` is TRUE.
+#' @param center_name Character (optional). Name of covariate denoting site
+#'   identity. Must be supplied if `use_local_intercepts` is TRUE.
 #'
 #' @return List with transmitted summary statistics for each local site.
 #'
 #' @author Peter Degen
 #'
 #' @export
-bca_iterate_sites <- function(outcome, covariates, model, family, data_split,
-                              use_local_intercepts, center_name = NULL) {
+bca_iterate_sites <- function(model, family, data_split,
+                              use_local_intercepts,
+                              outcome=NULL,
+                              covariates=NULL
+                              ) {
+
+    if (is.null(outcome))
+        outcome <- all.vars(model)[1]
+    if (is.null(covariates))
+        covariates <- attr(terms(model), "term.labels")
 
     # input checks
-    if (use_local_intercepts && is.null(center_name))
-        stop("`center_name` must be supplied when `use_local_intercepts` is TRUE")
     if (family != "gaussian" && use_local_intercepts)
         stop("`family` must be `gaussian` when `use_local_intercepts` is TRUE")
 
@@ -51,8 +57,7 @@ bca_iterate_sites <- function(outcome, covariates, model, family, data_split,
             mat <- data_split[[i]]
 
             if (use_local_intercepts) {
-                covariates_local <- covariates[covariates != center_name]
-                bstats[[i]] <- bayes_lin_reg_stats(mat, outcome, covariates_local, k = i, n_sites = n_sites)
+                bstats[[i]] <- bayes_lin_reg_stats(mat, outcome, covariates, k = i, n_sites = n_sites)
             } else {
                 bstats[[i]] <- bayes_lin_reg_stats(mat, outcome, covariates)
             }
@@ -61,33 +66,52 @@ bca_iterate_sites <- function(outcome, covariates, model, family, data_split,
     bstats
 }
 
+#' @title BCA linear regression summary stats
+#'
+#' @description Takes in dataframe with (X, y) and returns sufficient statistics
+#'   (X'X, X'y, y'y, n)
+#'
+#' @param df Dataframe containing covariates X and outcome y.
+#' @param outcome Name of outcome y.
+#' @param covariates Vector of covariate names.
+#' @param weights Vector of weights for weighted linear regression. Default
+#'   NULL.
+#' @param k Site number in case local intercepts are used. Default 0 corresponds
+#'   to not using local intercepts.
+#' @param n_sites Number of sites. Default 0.
+#'
+#' @return List with transmitted summary statistics for each local site.
+#'
+#' @author Peter Degen
+#'
 #' @export
-bayes_lin_reg_stats <- function(mat, outcome, covariates, weights = NULL, k = 0, n_sites = 0) {
+bayes_lin_reg_stats <- function(df, outcome, covariates, weights = NULL, k = 0, n_sites = 0) {
     # Compute summary statistics for Bayesian linear regression
 
     if (k == 0) {
         # Homogeneous setting: 1 global intercept
-        mat["Intercept"] <- 1
+        df["Intercept"] <- 1
         intercept_colnames <- "Intercept"
     } else if (k > 0 && n_sites > 0) {
         # Heterogeneous setting: 1 intercept per local center
-        intercepts <- matrix(0, nrow(mat), n_sites)
+        intercepts <- matrix(0, nrow(df), n_sites)
         intercepts[, k] <- 1
-        mat_new <- cbind(mat, intercepts)
+        df_new <- cbind(df, intercepts)
         intercept_colnames <- paste0("Intercept_", seq_len(ncol(intercepts)))
-        colnames(mat_new) <- c(colnames(mat), intercept_colnames)
-        mat <- mat_new
+        colnames(df_new) <- c(colnames(df), intercept_colnames)
+        df <- df_new
     } else {
         stop("k must be >= 0 and n_sites must be > 0 if k > 0")
     }
 
-    x <- mat[, c(intercept_colnames, covariates)]
+    x <- df[, c(intercept_colnames, covariates)]
+    x <- transform_X(x)
 
     if (is.null(weights)) {
         weights <- diag(1, dim(x))
     }
 
-    y <- mat[[outcome]]
+    y <- df[[outcome]]
     yy <- t(y) %*% weights %*% y
 
     x <- t(t(x))
@@ -95,7 +119,7 @@ bayes_lin_reg_stats <- function(mat, outcome, covariates, weights = NULL, k = 0,
 
     xy <- t(x) %*% weights %*% y
 
-    n <- nrow(mat) # sample size
+    n <- nrow(df) # sample size
 
     list(
         "xx" = xx,
@@ -193,12 +217,11 @@ get_linreg_prior <- function(covariates, use_local_intercepts, n_sites, epsilon 
 #'
 #' @param bstats List of summary statistics from each local site, e.g. obbject
 #'   returned by `bca_iterate_sites`.
-#' @param n_sites Number of sites.
+#' @param family Family to pass to glm() call, e.g. "gaussian".
 #' @param use_local_intercepts Logical. If true, use fixed site-specific
 #'   intercepts for each local site.
 #' @param use_local_variances Logical. If true, use fixed site-specific residual
-#'   variances for each local site.
-#' @param family Family to pass to glm() call, e.g. "gaussian".
+#'   variances for each local site. Default FALSE.
 #' @param epsilon Numeric. Regularization for prior hyperparameters. Default
 #'   1e-10.
 #' @param center_name Character (optional). Name of covariate denoting site
@@ -211,13 +234,11 @@ get_linreg_prior <- function(covariates, use_local_intercepts, n_sites, epsilon 
 #' @author Peter Degen
 #'
 #' @export
-bca_oneshot <- function(bstats, n_sites, use_local_intercepts, use_local_variances, family,
-                        epsilon = 1e-10, center_name = NULL, alpha=0.05, covariates=NULL) {
-    # input checks
-    # if (family == "gaussian" && is.null(center_name))
-    #     stop("`center_name` must be supplied when `family` = `gaussian`")
+bca_oneshot <- function(bstats, family, use_local_intercepts, use_local_variances=FALSE,
+                        epsilon = 1e-10, alpha=0.05, covariates=NULL) {
 
     params_oneshot <- list()
+    n_sites <- length(bstats)
 
     if (is.null(covariates)) {
         ##print("Warning: Covariate names not supplied, trying to infer") # TO DO: print at higher log level
@@ -227,8 +248,6 @@ bca_oneshot <- function(bstats, n_sites, use_local_intercepts, use_local_varianc
     }
 
     if (family != "gaussian") {
-        #print("Normal model known variance")
-
         update_normal_known_variance <- function(beta, sigma) {
             sigma_post <- solve(Reduce(`+`, lapply(sigma, solve)))
             beta_post <- sigma_post %*% Reduce(`+`, Map(function(s, b) solve(s) %*% b, sigma, beta))
@@ -240,7 +259,6 @@ bca_oneshot <- function(bstats, n_sites, use_local_intercepts, use_local_varianc
         params_oneshot$sigma_l <- updated_params$sigma
         params_oneshot$beta_l <- updated_params$beta
     } else {
-        #print("Bayesian linear regression")
         prior_params <- get_linreg_prior(covariates, use_local_intercepts, n_sites, epsilon = epsilon)
         params_oneshot <- bayes_lin_reg_post_params(bstats, prior_params, use_local_variances)
         bayes_map <- bayes_lin_reg_post_map(params_oneshot)
@@ -473,10 +491,11 @@ get_pred_prob <- function(center_identity, bstats, covariates,
 #' @author Peter Degen
 #'
 #' @export
-box_check_all_sites <- function(data_split, params_oneshot, bstats, family, covariates,
-                                n_sites, use_local_intercepts, center_name, remove_intercept=FALSE) {
+box_check_all_sites <- function(params_oneshot, bstats, family, covariates,
+                                use_local_intercepts, center_name=NULL, remove_intercept=FALSE) {
 
-    results <- lapply(seq_along(data_split), function(l) {
+    n_sites <- length(bstats)
+    results <- lapply(seq_along(bstats), function(l) {
         reduced_params_l <- confeR::get_reduced_params(l, params_oneshot, bstats, family)
         pbox <- get_pred_prob(
             l, bstats, covariates, n_sites,
@@ -493,6 +512,8 @@ box_check_all_sites <- function(data_split, params_oneshot, bstats, family, cova
     pboxes <- unlist(pboxes)
 
     reduced_params <- as.data.frame(reduced_params)
-    reduced_params[[center_name]] <- seq_along(data_split)
+    if (is.null(center_name))
+        center_name <- "Site"
+    reduced_params[[center_name]] <- seq_along(bstats)
     list("pboxes" = pboxes, "reduced_params"=reduced_params)
 }
