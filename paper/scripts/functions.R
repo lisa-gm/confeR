@@ -251,7 +251,7 @@ bfi_sub <- function(data_split, family, target, covariates, center_name) {
 }
 
 fit_bfi <- function(data_split, family, res_bfi_sub, use_local_intercepts,
-                    use_local_variances, return_fit = FALSE, alpha=0.05) {
+                    use_local_variances, return_fit = FALSE, alpha=0.05, lambda=0.01) {
 
     if (family == "bernoulli") family <- "binomial"
 
@@ -262,7 +262,7 @@ fit_bfi <- function(data_split, family, res_bfi_sub, use_local_intercepts,
     for (l in seq_along(data_split)) {
         Ms[[l]] <- as.data.frame(data_split[[l]])
         Ms[[l]]$hospital <- as.double(as.character(Ms[[l]]$hospital))
-        Lambdas[[l]] <- inv.prior.cov(Ms[[l]], lambda=0.01, family=family)
+        Lambdas[[l]] <- inv.prior.cov(Ms[[l]], lambda=lambda, family=family)
         fits[[l]] <- sub_fit_bfi[[l]]
         thetahats[[l]] <- fits[[l]]$theta_hat
         Ahats[[l]] <- fits[[l]]$A_hat
@@ -274,7 +274,7 @@ fit_bfi <- function(data_split, family, res_bfi_sub, use_local_intercepts,
     if (use_local_variances && use_local_intercepts) strat_par <- 1:2
     else if (use_local_variances) strat_par <- 2
 
-    Lambda_com <- BFI::inv.prior.cov(sub_X[[1]], lambda=0.01, L=length(data_split),
+    Lambda_com <- BFI::inv.prior.cov(sub_X[[1]], lambda=lambda, L=length(data_split),
                         family=family, stratified=stratified, strat_par=strat_par)
     priors_all <- append(priors, list(Lambda_com))
     fit.bfi <- BFI::bfi(theta_hats=thetahats, A_hats=Ahats, Lambda=priors_all,

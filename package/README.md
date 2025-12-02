@@ -1,15 +1,16 @@
 # confeR
 
-The **confeR** R package provides methods for performing conjugate federated inference in R, as described in Degen, Pawel, & Held (2026) [DOI].
+The **confeR** R package provides methods for performing conjugate federated inference in R, as described in *Degen, P. M., Pawel, S., Held.
+   L. (2026). Bayesian conjugate analysis for federated statistical inference. [DOI]*
 
 ## Installation
 
 ```r
 ## CRAN version
-install.packages("XXX")
+install.packages("confeR")
 
 ## development version from GitLab
-install.packages("remotes") # requires remotes package
+install.packages("remotes")
 remotes::install_gitlab(repo = "crsuzh/confeR", subdir = "package", host = "gitlab.uzh.ch")
 ```
 

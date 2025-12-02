@@ -17,7 +17,8 @@ library(invgamma)
 #'   intercepts for each local site.
 #' @param center_name Character (optional). Name of covariate denoting site
 #'   identity. Must be supplied if `use_local_intercepts` is TRUE.
-#'
+#' @param alpha Numeric. Significance level for credible intervals. Default
+#'   0.05.
 #' @return List with transmitted summary statistics for each local site.
 #'
 #' @author Peter Degen
@@ -26,7 +27,8 @@ library(invgamma)
 bca_iterate_sites <- function(model, family, data_split,
                               use_local_intercepts,
                               outcome=NULL,
-                              covariates=NULL
+                              covariates=NULL,
+                              alpha=0.05
                               ) {
 
     if (is.null(outcome))
@@ -44,12 +46,22 @@ bca_iterate_sites <- function(model, family, data_split,
     for (i in seq_along(data_split)) {
 
         # For GLM regression, we locally compute GLM parameters
-        if (family != "gaussian") {
+        if (family != "gaussian" || family == "gaussian_forced_glm") {
             if (use_local_intercepts) {
                 stop("Not yet implemented")
             } else {
-                res <- stats::glm(model, family, data_split[[i]])
+                family_alt <- if (family == "gaussian_forced_glm") "gaussian" else family
+                res <- stats::glm(model, family_alt, data_split[[i]])
                 bstats[[i]] <- list("beta" = res$coefficients, "sigma" = stats::vcov(res))
+
+                if (family_alt %in% c("gaussian", "Gamma", "inverse.gaussian")) {
+                    bstats[[i]]$sigma2 <- summary(res)$dispersion
+                    sigma2 <- summary(res)$dispersion
+                    df <- res$df.residual
+                    lower <- df * sigma2 / qchisq(1 - alpha/2, df)
+                    upper <- df * sigma2 / qchisq(alpha/2, df)
+                    bstats[[i]]$sigma2 <- c(lower = lower, estimate = sigma2, upper = upper)
+                }
             }
 
         # For Bayesian linear regression, we locally compute sufficient statistics
@@ -241,13 +253,17 @@ bca_oneshot <- function(bstats, family, use_local_intercepts, use_local_variance
     n_sites <- length(bstats)
 
     if (is.null(covariates)) {
-        ##print("Warning: Covariate names not supplied, trying to infer") # TO DO: print at higher log level
-        covariates <- rownames(bstats[[1]]$xy)
+        if (family == "gaussian") {
+            ##print("Warning: Covariate names not supplied, trying to infer") # TO DO: print at higher log level
+            covariates <- rownames(bstats[[1]]$xy)
+        } else {
+            covariates <- rownames(bstats[[1]]$sigma)
+        }
         covariates <- covariates[!(covariates %in% c("Intercept", "(Intercept)"))]
         covariates <- covariates[!startsWith(covariates, "Intercept")]
     }
 
-    if (family != "gaussian") {
+    if (family != "gaussian" || family == "gaussian_forced_glm") {
         update_normal_known_variance <- function(beta, sigma) {
             sigma_post <- solve(Reduce(`+`, lapply(sigma, solve)))
             beta_post <- sigma_post %*% Reduce(`+`, Map(function(s, b) solve(s) %*% b, sigma, beta))
@@ -281,8 +297,9 @@ bca_oneshot <- function(bstats, family, use_local_intercepts, use_local_variance
         new_row <- data.frame(disp_ci[[1]], disp_ci[[2]], row.names = "sigma2")
         colnames(new_row) <- colnames(params_oneshot$CI)
         params_oneshot$CI <- rbind(params_oneshot$CI, new_row)
+    } else if (family %in% c("gaussian_forced_glm", "Gamma", "inverse.gaussian")) {
+        print("TO DO: sigma2 for glm")
     }
-
     params_oneshot
 }
 
