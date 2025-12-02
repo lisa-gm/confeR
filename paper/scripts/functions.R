@@ -227,7 +227,7 @@ fit_combined_glmm <- function(data, family, model, model_no_int,
 
 ### BFI ###
 
-bfi_sub <- function(data_split, family, target, covariates, center_name) {
+bfi_sub <- function(data_split, family, target, covariates, center_name, lambda=0.1) {
 
     covariates_local <- covariates[covariates != center_name]
     sub_X <- vector("list", length(data_split))
@@ -241,7 +241,7 @@ bfi_sub <- function(data_split, family, target, covariates, center_name) {
 
         sub_X[[i]] <- as.data.frame(subset(data, data[[center_name]] == l, select = covariates_local))
 
-        sub_Lambda[[i]] <- inv.prior.cov(sub_X[[i]], lambda = 0.01,
+        sub_Lambda[[i]] <- inv.prior.cov(sub_X[[i]], lambda = lambda,
                             L = length(data_split), family = family) # “gaussian”, “binomial”, “survival”
         sub_fit_bfi[[i]] <- MAP.estimation(y = data[[target]][data[[center_name]] == l], X = sub_X[[i]],
                                 family = family, Lambda = sub_Lambda[[i]])
@@ -251,7 +251,7 @@ bfi_sub <- function(data_split, family, target, covariates, center_name) {
 }
 
 fit_bfi <- function(data_split, family, res_bfi_sub, use_local_intercepts,
-                    use_local_variances, return_fit = FALSE, alpha=0.05, lambda=0.01) {
+                    use_local_variances, return_fit = FALSE, alpha=0.05, lambda=0.1) {
 
     if (family == "bernoulli") family <- "binomial"
 

@@ -37,7 +37,7 @@ bca_iterate_sites <- function(model, family, data_split,
         covariates <- attr(terms(model), "term.labels")
 
     # input checks
-    if (family != "gaussian" && use_local_intercepts)
+    if (family != "gaussian" && use_local_intercepts && family != "gaussian_forced_glm")
         stop("`family` must be `gaussian` when `use_local_intercepts` is TRUE")
 
     n_sites <- length(data_split)
@@ -234,12 +234,15 @@ get_linreg_prior <- function(covariates, use_local_intercepts, n_sites, epsilon 
 #'   intercepts for each local site.
 #' @param use_local_variances Logical. If true, use fixed site-specific residual
 #'   variances for each local site. Default FALSE.
-#' @param epsilon Numeric. Regularization for prior hyperparameters. Default
+#' @param epsilon Numeric. Regularization for prior hyperparameters. Default:
 #'   1e-10.
 #' @param center_name Character (optional). Name of covariate denoting site
 #'   identity. Must be supplied if `family` is `gaussian`.
-#' @param alpha Numeric. Significance level for credible intervals. Default
+#' @param alpha Numeric. Significance level for credible intervals. Default:
 #'   0.05.
+#' @param glm_prior_lamda Numeric (optional). Prior for diagonal precision
+#'   matrix in normal model, known variance case. See also Equation 7 in Jonker,
+#'   Pazira and Coolen (2024). Default: 0.
 #'
 #' @return List of oneshot parameter estimates
 #'
@@ -247,7 +250,7 @@ get_linreg_prior <- function(covariates, use_local_intercepts, n_sites, epsilon 
 #'
 #' @export
 bca_oneshot <- function(bstats, family, use_local_intercepts, use_local_variances=FALSE,
-                        epsilon = 1e-10, alpha=0.05, covariates=NULL) {
+                        epsilon = 1e-10, alpha=0.05, covariates=NULL, glm_prior_lamda=0) {
 
     params_oneshot <- list()
     n_sites <- length(bstats)
@@ -264,8 +267,10 @@ bca_oneshot <- function(bstats, family, use_local_intercepts, use_local_variance
     }
 
     if (family != "gaussian" || family == "gaussian_forced_glm") {
+        m <- nrow(bstats[[1]]$sigma)
+        l <- diag(glm_prior_lamda, m, m)
         update_normal_known_variance <- function(beta, sigma) {
-            sigma_post <- solve(Reduce(`+`, lapply(sigma, solve)))
+            sigma_post <- solve(Reduce(`+`, lapply(sigma, solve)) + l - n_sites*l)
             beta_post <- sigma_post %*% Reduce(`+`, Map(function(s, b) solve(s) %*% b, sigma, beta))
             list("sigma" = sigma_post, "beta" = beta_post)
         }
