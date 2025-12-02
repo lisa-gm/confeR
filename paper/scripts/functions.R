@@ -7,29 +7,35 @@ library(lme4)
 
 ### Local fits ###
 
-fit_local_glms <- function(data_split, Method, target, covariates, center_name) {
+fit_local_glms <- function(data_split, model, outcome, covariates, center_name) {
 
     coef_list <- list()
     se_list <- list()
     cov_list <- list()
     sigma2_list <- list()
+    df.res_list <- list()
+    n_list <- list()
     covariates_local <- covariates[covariates != center_name]
 
     for (i in seq_along(data_split)) {
-        l <- levels(data[[center_name]])[i]
-        sub_x <- data[data[[center_name]] == l, c(target, covariates_local)]
-        sub_fit <- glm(Method, family=family, data=sub_x)
+        data <- data_split[[i]]
+        sub_x <- data[, c(outcome, covariates_local)]
+        sub_fit <- glm(model, family=family, data=sub_x)
         coef_summary <- summary(sub_fit)$coefficients
         coef_list[[i]] <- coef_summary[, "Estimate"]
         se_list[[i]] <- coef_summary[, "Std. Error"]
         cov_list[[i]] <- vcov(sub_fit)
         sigma2_list[[i]] <- sigma(sub_fit)^2
+        df.res_list[[i]] <- df.residual(sub_fit)
+        n_list[[i]] <- nrow(data)
     }
 
     list("coef_list" = coef_list,
         "se_list" = se_list,
         "cov_list" = cov_list,
-        "sigma2_list" = as.numeric(sigma2_list)
+        "sigma2_list" = as.numeric(sigma2_list),
+        "df.res_list" = as.numeric(df.res_list),
+        "n_list" = as.numeric(n_list)
     )
 }
 
@@ -137,6 +143,27 @@ fit_mv_meta_random <- function(coef_list, cov_list, method="REML", use_local_int
         results_meta_mv <- bind_rows(results_meta_mv, local_intercepts_row)
     }
     results_meta_mv
+}
+
+meta_sigma2 <- function(sigma2_list, df_residual_list, method = "FE", alpha=0.05) {
+
+    yi <- log(sigma2_list)
+    # Standard errors using delta method: SE(log(sigma^2)) = sqrt(2 / df)
+    sei <- sqrt(2 / df_residual_list)
+
+    fit_meta <- metafor::rma(yi = yi, sei = sei, method = method, level = 100-100*alpha)
+
+    # Back-transform to sigma2 scale
+    pooled_sigma2 <- exp(fit_meta$b)
+    lower <- exp(fit_meta$ci.lb)
+    upper <- exp(fit_meta$ci.ub)
+
+    list(
+        pooled_sigma2 = pooled_sigma2,
+        ci_lower = lower,
+        ci_upper = upper,
+        log_fit = fit_meta
+    )
 }
 
 ### Combined fit ###
