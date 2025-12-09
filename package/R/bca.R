@@ -41,7 +41,7 @@ bca_iterate_sites <- function(model, family, data_split,
         stop("`family` must be `gaussian` when `use_local_intercepts` is TRUE")
 
     n_sites <- length(data_split)
-    bstats <- vector("list", n_sites)
+    sumstats <- vector("list", n_sites)
 
     for (i in seq_along(data_split)) {
 
@@ -52,15 +52,15 @@ bca_iterate_sites <- function(model, family, data_split,
             } else {
                 family_alt <- if (family == "gaussian_forced_glm") "gaussian" else family
                 res <- stats::glm(model, family_alt, data_split[[i]])
-                bstats[[i]] <- list("beta" = res$coefficients, "sigma" = stats::vcov(res))
+                sumstats[[i]] <- list("beta" = res$coefficients, "sigma" = stats::vcov(res))
 
                 if (family_alt %in% c("gaussian", "Gamma", "inverse.gaussian")) {
-                    bstats[[i]]$sigma2 <- summary(res)$dispersion
+                    sumstats[[i]]$sigma2 <- summary(res)$dispersion
                     sigma2 <- summary(res)$dispersion
                     df <- res$df.residual
                     lower <- df * sigma2 / qchisq(1 - alpha/2, df)
                     upper <- df * sigma2 / qchisq(alpha/2, df)
-                    bstats[[i]]$sigma2 <- c(lower = lower, estimate = sigma2, upper = upper)
+                    sumstats[[i]]$sigma2 <- c(lower = lower, estimate = sigma2, upper = upper)
                 }
             }
 
@@ -69,13 +69,13 @@ bca_iterate_sites <- function(model, family, data_split,
             mat <- data_split[[i]]
 
             if (use_local_intercepts) {
-                bstats[[i]] <- bayes_lin_reg_stats(mat, outcome, covariates, k = i, n_sites = n_sites)
+                sumstats[[i]] <- bayes_lin_reg_stats(mat, outcome, covariates, k = i, n_sites = n_sites)
             } else {
-                bstats[[i]] <- bayes_lin_reg_stats(mat, outcome, covariates)
+                sumstats[[i]] <- bayes_lin_reg_stats(mat, outcome, covariates)
             }
         }
     }
-    bstats
+    sumstats
 }
 
 #' @title BCA linear regression summary stats
@@ -227,7 +227,7 @@ get_linreg_prior <- function(covariates, use_local_intercepts, n_sites, epsilon 
 #' @description Perform one-shot computation of parameter estimates given
 #'   transmitted summary statistics.
 #'
-#' @param bstats List of summary statistics from each local site, e.g. obbject
+#' @param sumstats List of summary statistics from each local site, e.g. obbject
 #'   returned by `bca_iterate_sites`.
 #' @param family Family to pass to glm() call, e.g. "gaussian".
 #' @param use_local_intercepts Logical. If true, use fixed site-specific
@@ -249,39 +249,39 @@ get_linreg_prior <- function(covariates, use_local_intercepts, n_sites, epsilon 
 #' @author Peter Degen
 #'
 #' @export
-bca_oneshot <- function(bstats, family, use_local_intercepts, use_local_variances=FALSE,
+bca_oneshot <- function(sumstats, family, use_local_intercepts, use_local_variances=FALSE,
                         epsilon = 1e-10, alpha=0.05, covariates=NULL, glm_prior_lamda=0) {
 
     params_oneshot <- list()
-    n_sites <- length(bstats)
+    n_sites <- length(sumstats)
 
     if (is.null(covariates)) {
         if (family == "gaussian") {
             ##print("Warning: Covariate names not supplied, trying to infer") # TO DO: print at higher log level
-            covariates <- rownames(bstats[[1]]$xy)
+            covariates <- rownames(sumstats[[1]]$xy)
         } else {
-            covariates <- rownames(bstats[[1]]$sigma)
+            covariates <- rownames(sumstats[[1]]$sigma)
         }
         covariates <- covariates[!(covariates %in% c("Intercept", "(Intercept)"))]
         covariates <- covariates[!startsWith(covariates, "Intercept")]
     }
 
     if (family != "gaussian" || family == "gaussian_forced_glm") {
-        m <- nrow(bstats[[1]]$sigma)
+        m <- nrow(sumstats[[1]]$sigma)
         l <- diag(glm_prior_lamda, m, m)
         update_normal_known_variance <- function(beta, sigma) {
             sigma_post <- solve(Reduce(`+`, lapply(sigma, solve)) + l - n_sites*l)
             beta_post <- sigma_post %*% Reduce(`+`, Map(function(s, b) solve(s) %*% b, sigma, beta))
             list("sigma" = sigma_post, "beta" = beta_post)
         }
-        beta <- lapply(bstats, function(x) unlist(unname(x["beta"])))
-        sigma <- lapply(bstats, function(x) x[["sigma"]])
+        beta <- lapply(sumstats, function(x) unlist(unname(x["beta"])))
+        sigma <- lapply(sumstats, function(x) x[["sigma"]])
         updated_params <- update_normal_known_variance(beta, sigma)
         params_oneshot$sigma_l <- updated_params$sigma
         params_oneshot$beta_l <- updated_params$beta
     } else {
         prior_params <- get_linreg_prior(covariates, use_local_intercepts, n_sites, epsilon = epsilon)
-        params_oneshot <- bayes_lin_reg_post_params(bstats, prior_params, use_local_variances)
+        params_oneshot <- bayes_lin_reg_post_params(sumstats, prior_params, use_local_variances)
         bayes_map <- bayes_lin_reg_post_map(params_oneshot)
         params_oneshot$beta_l <- bayes_map$beta_l
         params_oneshot$sigma_l <- bayes_map$sigma_l
@@ -358,7 +358,7 @@ tidy_results <- function(params_oneshot, use_local_intercepts) {
 #'
 #' @param center_identity The id of the site to be removed.
 #' @param params_oneshot Parameters returned by bca_oneshot.
-#' @param bstats List of summary statistics from each local site, e.g. obbject
+#' @param sumstats List of summary statistics from each local site, e.g. obbject
 #'   returned by `bca_iterate_sites`.
 #' @param family Family to pass to glm() call, e.g. "gaussian".
 #'
@@ -367,18 +367,18 @@ tidy_results <- function(params_oneshot, use_local_intercepts) {
 #' @author Peter Degen
 #'
 #' @export
-get_reduced_params <- function(center_identity, params_oneshot, bstats, family) {
+get_reduced_params <- function(center_identity, params_oneshot, sumstats, family) {
 
     l <- center_identity
 
     if (family == "gaussian") {
-        lambda_minus_l <- params_oneshot$lambda_l - bstats[[l]]$xx
-        a_minus_l <- params_oneshot$a_l - bstats[[l]]$n/2
+        lambda_minus_l <- params_oneshot$lambda_l - sumstats[[l]]$xx
+        a_minus_l <- params_oneshot$a_l - sumstats[[l]]$n/2
         beta_minus_l <- solve(lambda_minus_l) %*% (params_oneshot$lambda_l
-            %*% params_oneshot$beta_l - bstats[[l]]$xy)
+            %*% params_oneshot$beta_l - sumstats[[l]]$xy)
         blb_full <- t(params_oneshot$beta_l) %*% params_oneshot$lambda_l %*% params_oneshot$beta_l
         blb_local <- t(beta_minus_l) %*% lambda_minus_l %*% beta_minus_l
-        b_minus_l <- params_oneshot$b_l + 0.5 * (blb_full - blb_local - bstats[[l]]$yy)
+        b_minus_l <- params_oneshot$b_l + 0.5 * (blb_full - blb_local - sumstats[[l]]$yy)
 
         return(list( # nolint: return_linter.
             "lambda_minus_l" = lambda_minus_l,
@@ -388,9 +388,9 @@ get_reduced_params <- function(center_identity, params_oneshot, bstats, family) 
         ))
     } else {
         delta_1s <- solve(params_oneshot$sigma_l)
-        delta_l <- solve(bstats[[l]]$sigma)
+        delta_l <- solve(sumstats[[l]]$sigma)
         sigma_minus_l <- solve(delta_1s - delta_l)
-        beta_minus_l <- sigma_minus_l %*% (delta_1s %*% params_oneshot$beta_l - delta_l %*% bstats[[l]]$beta)
+        beta_minus_l <- sigma_minus_l %*% (delta_1s %*% params_oneshot$beta_l - delta_l %*% sumstats[[l]]$beta)
 
         return(list( # nolint: return_linter.
             "sigma_minus_l" = sigma_minus_l,
@@ -405,7 +405,7 @@ get_reduced_params <- function(center_identity, params_oneshot, bstats, family) 
 #'   posterior from all other centers.
 #'
 #' @param center_identity The id of the site to be checked
-#' @param bstats List of summary statistics from each local site, e.g. obbject
+#' @param sumstats List of summary statistics from each local site, e.g. obbject
 #'   returned by `bca_iterate_sites`.
 #' @param covariates Vector of covariate names.
 #' @param n_sites Number of sites.
@@ -421,7 +421,7 @@ get_reduced_params <- function(center_identity, params_oneshot, bstats, family) 
 #' @author Peter Degen
 #'
 #' @export
-get_pred_prob <- function(center_identity, bstats, covariates,
+get_pred_prob <- function(center_identity, sumstats,
                            n_sites, reduced_params, use_local_intercepts, remove_intercept=FALSE) {
 
     if (use_local_intercepts && !remove_intercept) {
@@ -442,16 +442,23 @@ get_pred_prob <- function(center_identity, bstats, covariates,
         as.numeric(t(diff) %*% solve(solve(xx) + solve(lambda)) %*% diff / (m_tilde * sp))
     }
 
-    bl <- bstats[[l]]
+    m <- nrow(sumstats[[1]]$xx)
+    if (use_local_intercepts) {
+        m <- m - n_sites  # subtract local intercepts
+    } else {
+        m <- m - 1  # subtract global intercept
+    }
+
+    bl <- sumstats[[l]]
     n_l <- bl$n
-    m <- length(covariates)
+
     m_tilde <- if (remove_intercept) m else m + 1  # = k in Box 1980
     xx <- bl$xx
     xy <- bl$xy
     yy <- bl$yy
 
     if (use_local_intercepts) {
-        xxl <- bstats[[l]]$xx
+        xxl <- sumstats[[l]]$xx
         last_n <- (nrow(xxl) - m + 1):nrow(xxl)
         keep <- sort(unique(c(l, last_n)))
         xxl <- xxl[keep, keep]
@@ -497,7 +504,7 @@ get_pred_prob <- function(center_identity, bstats, covariates,
 #'
 #' @param data_split The data split by local sites.
 #' @param params_oneshot Parameters returned by `bca_oneshot`.
-#' @param bstats List of summary statistics from each local site, e.g. obbject
+#' @param sumstats List of summary statistics from each local site, e.g. obbject
 #'   returned by `bca_iterate_sites`.
 #' @param family Family to pass to glm() call, e.g. "gaussian".
 #' @param covariates Vector of covariate names.
@@ -513,14 +520,14 @@ get_pred_prob <- function(center_identity, bstats, covariates,
 #' @author Peter Degen
 #'
 #' @export
-box_check_all_sites <- function(params_oneshot, bstats, family, covariates,
+box_check_all_sites <- function(params_oneshot, sumstats, family,
                                 use_local_intercepts, center_name=NULL, remove_intercept=FALSE) {
 
-    n_sites <- length(bstats)
-    results <- lapply(seq_along(bstats), function(l) {
-        reduced_params_l <- confeR::get_reduced_params(l, params_oneshot, bstats, family)
+    n_sites <- length(sumstats)
+    results <- lapply(seq_along(sumstats), function(l) {
+        reduced_params_l <- confeR::get_reduced_params(l, params_oneshot, sumstats, family)
         pbox <- get_pred_prob(
-            l, bstats, covariates, n_sites,
+            l, sumstats, n_sites,
             reduced_params_l, use_local_intercepts, remove_intercept
         )
         list(
@@ -536,6 +543,6 @@ box_check_all_sites <- function(params_oneshot, bstats, family, covariates,
     reduced_params <- as.data.frame(reduced_params)
     if (is.null(center_name))
         center_name <- "Site"
-    reduced_params[[center_name]] <- seq_along(bstats)
+    reduced_params[[center_name]] <- seq_along(sumstats)
     list("pboxes" = pboxes, "reduced_params"=reduced_params)
 }

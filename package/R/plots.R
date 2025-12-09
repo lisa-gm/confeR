@@ -108,22 +108,25 @@ forest_plot <- function(df_forest,
                         alpha=0.05,
                         nrow=1,
                         inline_plot=FALSE,
-                        use_log_scale=FALSE,
-                        order_box=FALSE
+                        use_log_scale=TRUE,
+                        order_box=TRUE
                         ) {
 
     require(ggplot2)
     require(ggsci)
 
     right_covariate <- sort(unique(df_forest$Covariate), decreasing = TRUE)[1]
-    pbox_thresh <- alpha / length(pboxes)
-
-    if (use_log_scale) {
-        pbox_thresh <- -log2(pbox_thresh)
-        pboxes <- -log2(pboxes)
-    }
+    pbox_thresh <- alpha
 
     if (!is.null(pboxes)) {
+
+        pbox_thresh <- alpha / length(pboxes)
+
+        if (use_log_scale) {
+            pbox_thresh <- -log2(pbox_thresh)
+            pboxes <- -log2(pboxes)
+        }
+
         margins <- margin(t = 5, r = 70, b = 5, l = 5, unit = "pt")
         p_box_df <- data.frame(
             site   = unique(dplyr::filter(df_forest, df_forest$site != "Federated")$site),
@@ -224,7 +227,7 @@ forest_plot <- function(df_forest,
         )
     }
 
-    p <- p + facet_wrap(~ Covariate, scales = "free_x", nrow=nrow) +
+    p <- p + facet_wrap(~ Covariate, scales = "free_x", nrow=nrow, labeller = label_parsed) +
 
     ## Make room on the right so the text isn't clipped
     coord_cartesian(clip = "off") +                     # allow drawing outside panels

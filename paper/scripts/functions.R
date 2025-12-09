@@ -466,7 +466,7 @@ tidy_pda <- function(fit.pda, family, covariates, n_sites, n_data, heterogeneity
         if (!is.null(fit.pda$risk_factor))
             df_pda$Covariate <- fit.pda$risk_factor
         else
-            df_pda$Covariate <- c("(Intercept)", covariates_local)
+            df_pda$Covariate <- c("(Intercept)", covariates)
     }
 
     df_pda
