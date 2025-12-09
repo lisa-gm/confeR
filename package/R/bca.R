@@ -520,7 +520,7 @@ get_pred_prob <- function(center_identity, sumstats,
 #' @author Peter Degen
 #'
 #' @export
-box_check_all_sites <- function(params_oneshot, sumstats, family,
+pred_check <- function(params_oneshot, sumstats, family,
                                 use_local_intercepts, center_name=NULL, remove_intercept=FALSE) {
 
     n_sites <- length(sumstats)

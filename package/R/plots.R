@@ -1,6 +1,6 @@
 # Reduce local intercepts extended covariate matrix
-bca_oneshot_remove_local_intercepts <- function(bstats, center_identity, family, alpha = 0.05) {
-    bs <- bstats[[center_identity]]
+bca_remove_local_intercepts <- function(sumstats, center_identity, family, alpha = 0.05) {
+    bs <- sumstats[[center_identity]]
     xx <- bs$xx
     xy <- bs$xy
     yy <- bs$yy
@@ -51,22 +51,22 @@ make_diamond <- function(df, half_height = 0.15) {
 #'   sites plus the federated BCA estimates.
 #'
 #' @param df_bca Dataframe with BCA estimates returned by `tidy_results`.
-#' @param bstats List of summary statistics from each local site, e.g. obbject
+#' @param sumstats List of summary statistics from each local site, e.g. obbject
 #'   returned by `bca_iterate_sites`.
 #' @param alpha Numeric. Significance level for credible intervals. Default
 #'   0.05.
-#' 
+#'
 #' @return Dataframe with parameter estimates and confidence intervals for all
 #'   sites and covariates.
 #'
 #' @author Peter Degen
 #'
 #' @export
-prepare_forest_plot <- function(df_bca, bstats, family, alpha=0.05) {
-    out_list <- vector("list", length(bstats))
+prepare_forest_plot <- function(df_bca, sumstats, family, alpha=0.05) {
+    out_list <- vector("list", length(sumstats))
 
-    for (i in seq_along(bstats)) {
-        bl <- bca_oneshot_remove_local_intercepts(bstats, i, family, alpha = alpha)
+    for (i in seq_along(sumstats)) {
+        bl <- bca_remove_local_intercepts(sumstats, i, family, alpha = alpha)
         bl <- confeR::tidy_results(bl, use_local_intercepts=FALSE)
         bl$Method <- NULL
         bl$site <- i
@@ -244,4 +244,48 @@ forest_plot <- function(df_forest,
         ggsave(outfile, bg = "white", width = width, height = height)
     }
     p
+}
+
+#' @title Multivariate forest plot wrapper
+#'
+#' @description Wrapper that computes pbox and makes forest plot in one call.
+#'
+#' @param params_oneshot Parameters returned by `bca_oneshot`.
+#' @param sumstats List of summary statistics from each local site, e.g. obbject
+#'   returned by `bca_iterate_sites`.
+#' @param family Family to pass to glm() call, e.g. "gaussian".
+#' @param use_local_intercepts Logical. If true, use fixed site-specific
+#'   intercepts for each local site.
+#' @param center_name Character. Name of covariate denoting site identity.
+#' @param alpha Numeric. Significance level for credible intervals. Default
+#'   0.05.
+#' @param ... Further arguments passed to `prepare_forest_plot`.
+#' @return ggplot2 object.
+#'
+#' @author Peter Degen
+#'
+#' @export
+forest_box <- function(params_oneshot,
+                            sumstats,
+                            family,
+                            use_local_intercepts,
+                            center_name="site",
+                            remove_intercept=FALSE,
+                            alpha=0.05,
+                            remove_sigma2=TRUE,
+                            ...
+                            ) {
+
+    df_bca <- tidy_results(params_oneshot, use_local_intercepts)
+    box_results <- confeR::pred_check(params_oneshot,
+                                sumstats,
+                                family = family,
+                                use_local_intercepts,
+                                center_name = center_name,
+                                remove_intercept = remove_intercept)
+
+    df_forest <- confeR::prepare_forest_plot(df_bca, sumstats, alpha=0.05, family="gaussian")
+    if (remove_sigma2)
+        df_forest <- df_forest |> dplyr::filter(df_forest$Covariate != "sigma2")
+    forest_plot(df_forest, box_results$pboxes, ...)
 }
