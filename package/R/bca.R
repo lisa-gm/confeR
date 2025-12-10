@@ -36,10 +36,6 @@ bca_iterate_sites <- function(model, family, data_split,
     if (is.null(covariates))
         covariates <- attr(terms(model), "term.labels")
 
-    # input checks
-    if (family != "gaussian" && use_local_intercepts && family != "gaussian_forced_glm")
-        stop("`family` must be `gaussian` when `use_local_intercepts` is TRUE")
-
     n_sites <- length(data_split)
     sumstats <- vector("list", n_sites)
 
@@ -47,21 +43,17 @@ bca_iterate_sites <- function(model, family, data_split,
 
         # For GLM regression, we locally compute GLM parameters
         if (family != "gaussian" || family == "gaussian_forced_glm") {
-            if (use_local_intercepts) {
-                stop("Not yet implemented")
-            } else {
-                family_alt <- if (family == "gaussian_forced_glm") "gaussian" else family
-                res <- stats::glm(model, family_alt, data_split[[i]])
-                sumstats[[i]] <- list("beta" = res$coefficients, "sigma" = stats::vcov(res))
+            family_alt <- if (family == "gaussian_forced_glm") "gaussian" else family
+            res <- stats::glm(model, family_alt, data_split[[i]])
+            sumstats[[i]] <- list("beta" = res$coefficients, "sigma" = stats::vcov(res))
 
-                if (family_alt %in% c("gaussian", "Gamma", "inverse.gaussian")) {
-                    sumstats[[i]]$sigma2 <- summary(res)$dispersion
-                    sigma2 <- summary(res)$dispersion
-                    df <- res$df.residual
-                    lower <- df * sigma2 / qchisq(1 - alpha/2, df)
-                    upper <- df * sigma2 / qchisq(alpha/2, df)
-                    sumstats[[i]]$sigma2 <- c(lower = lower, estimate = sigma2, upper = upper)
-                }
+            if (family_alt %in% c("gaussian", "Gamma", "inverse.gaussian")) {
+                sumstats[[i]]$sigma2 <- summary(res)$dispersion
+                sigma2 <- summary(res)$dispersion
+                df <- res$df.residual
+                lower <- df * sigma2 / qchisq(1 - alpha/2, df)
+                upper <- df * sigma2 / qchisq(alpha/2, df)
+                sumstats[[i]]$sigma2 <- c(lower = lower, estimate = sigma2, upper = upper)
             }
 
         # For Bayesian linear regression, we locally compute sufficient statistics
@@ -222,6 +214,59 @@ get_linreg_prior <- function(covariates, use_local_intercepts, n_sites, epsilon 
     prior_params
 }
 
+bca_glm_oneshot <- function(sumstats, use_local_intercepts, glm_prior_lamda=0, alpha=0.05) {
+    params_oneshot <- list()
+    n_sites <- length(sumstats)
+    if (use_local_intercepts) {
+        sumstats_transformed <- lapply(sumstats, function(x) {
+        keep <- names(x$beta) != "(Intercept)"
+            list(
+                beta  = x$beta[keep],
+                sigma = x$sigma[keep, keep, drop = FALSE]
+            )
+        })
+
+        local_intercepts <- lapply(sumstats, function(x) {
+            keep <- names(x$beta) == "(Intercept)"
+                c(
+                    x$beta[keep],
+                    "sigma2" = x$sigma[keep, keep, drop = FALSE]
+                )
+        })
+        local_intercepts <- as.data.frame(local_intercepts,
+                                        col.names=lapply(1:n_sites, function(x) paste0("Intercept_", x)))
+
+    } else {
+        sumstats_transformed <- sumstats
+    }
+
+    m <- nrow(sumstats_transformed[[1]]$sigma)
+    l <- diag(glm_prior_lamda, m, m)
+    update_normal_known_variance <- function(beta, sigma) {
+        sigma_post <- solve(Reduce(`+`, lapply(sigma, solve)) + l - n_sites*l)
+        beta_post <- sigma_post %*% Reduce(`+`, Map(function(s, b) solve(s) %*% b, sigma, beta))
+        list("sigma" = sigma_post, "beta" = beta_post)
+    }
+    beta <- lapply(sumstats_transformed, function(x) unlist(unname(x["beta"])))
+    sigma <- lapply(sumstats_transformed, function(x) x[["sigma"]])
+    updated_params <- update_normal_known_variance(beta, sigma)
+    params_oneshot$sigma_l <- updated_params$sigma
+    params_oneshot$beta_l <- updated_params$beta
+    params_oneshot$CI <- confeR::get_bayes_ci_normal(params_oneshot, alpha)
+
+    if (use_local_intercepts) {
+        params_oneshot$beta_l <- as.matrix(rbind(t(local_intercepts["(Intercept)", ]), params_oneshot$beta_l))
+        colnames(params_oneshot$beta_l) <- NULL
+        intercept_s2 <- list("beta_l"=t(local_intercepts["(Intercept)", ]),
+                             "sigma_l"=diag(local_intercepts["sigma2", ]))
+        interecept_ci <- get_bayes_ci_normal(intercept_s2, alpha)
+        names(interecept_ci) <- names(params_oneshot$CI)
+        params_oneshot$CI <- rbind(interecept_ci, params_oneshot$CI)
+    }
+
+    params_oneshot
+}
+
 #' @title BCA one-shot
 #'
 #' @description Perform one-shot computation of parameter estimates given
@@ -252,7 +297,6 @@ get_linreg_prior <- function(covariates, use_local_intercepts, n_sites, epsilon 
 bca_oneshot <- function(sumstats, family, use_local_intercepts, use_local_variances=FALSE,
                         epsilon = 1e-10, alpha=0.05, covariates=NULL, glm_prior_lamda=0) {
 
-    params_oneshot <- list()
     n_sites <- length(sumstats)
 
     if (is.null(covariates)) {
@@ -267,19 +311,9 @@ bca_oneshot <- function(sumstats, family, use_local_intercepts, use_local_varian
     }
 
     if (family != "gaussian" || family == "gaussian_forced_glm") {
-        m <- nrow(sumstats[[1]]$sigma)
-        l <- diag(glm_prior_lamda, m, m)
-        update_normal_known_variance <- function(beta, sigma) {
-            sigma_post <- solve(Reduce(`+`, lapply(sigma, solve)) + l - n_sites*l)
-            beta_post <- sigma_post %*% Reduce(`+`, Map(function(s, b) solve(s) %*% b, sigma, beta))
-            list("sigma" = sigma_post, "beta" = beta_post)
-        }
-        beta <- lapply(sumstats, function(x) unlist(unname(x["beta"])))
-        sigma <- lapply(sumstats, function(x) x[["sigma"]])
-        updated_params <- update_normal_known_variance(beta, sigma)
-        params_oneshot$sigma_l <- updated_params$sigma
-        params_oneshot$beta_l <- updated_params$beta
+        params_oneshot <- bca_glm_oneshot(sumstats, use_local_intercepts, glm_prior_lamda, alpha)
     } else {
+        params_oneshot <- list()
         prior_params <- get_linreg_prior(covariates, use_local_intercepts, n_sites, epsilon = epsilon)
         params_oneshot <- bayes_lin_reg_post_params(sumstats, prior_params, use_local_variances)
         bayes_map <- bayes_lin_reg_post_map(params_oneshot)
@@ -294,9 +328,8 @@ bca_oneshot <- function(sumstats, family, use_local_intercepts, use_local_varian
         disp_ci <- invgamma::qinvgamma(c(alpha/2, 1-alpha/2),
                                        shape = params_oneshot$a_l,
                                        rate = params_oneshot$b_l)
+        params_oneshot$CI <- get_bayes_ci_normal(params_oneshot, alpha)
     }
-
-    params_oneshot$CI <- get_bayes_ci_normal(params_oneshot, alpha)
 
     if (family == "gaussian") {
         new_row <- data.frame(disp_ci[[1]], disp_ci[[2]], row.names = "sigma2")
