@@ -214,18 +214,18 @@ get_linreg_prior <- function(covariates, use_local_intercepts, n_sites, epsilon 
     prior_params
 }
 
-bca_glm_oneshot <- function(sumstats, use_local_intercepts, glm_prior_lamda=0, alpha=0.05) {
+#' @export
+bca_glm_oneshot <- function(sumstats, pooling="none", glm_prior_lamda=0, alpha=0.05) {
+
+    # complete: global intercept
+    # none: local glm intercepts
+    # partial: empirical bayes shrinkage
+    stopifnot(pooling %in% c("complete", "partial", "none"))
+
     params_oneshot <- list()
     n_sites <- length(sumstats)
-    if (use_local_intercepts) {
-        sumstats_transformed <- lapply(sumstats, function(x) {
-        keep <- names(x$beta) != "(Intercept)"
-            list(
-                beta  = x$beta[keep],
-                sigma = x$sigma[keep, keep, drop = FALSE]
-            )
-        })
 
+    if (pooling %in% c("partial", "none")) {
         local_intercepts <- lapply(sumstats, function(x) {
             keep <- names(x$beta) == "(Intercept)"
                 c(
@@ -235,6 +235,16 @@ bca_glm_oneshot <- function(sumstats, use_local_intercepts, glm_prior_lamda=0, a
         })
         local_intercepts <- as.data.frame(local_intercepts,
                                         col.names=lapply(1:n_sites, function(x) paste0("Intercept_", x)))
+    }
+
+    if (pooling == "none") {
+        sumstats_transformed <- lapply(sumstats, function(x) {
+        keep <- names(x$beta) != "(Intercept)"
+            list(
+                beta  = x$beta[keep],
+                sigma = x$sigma[keep, keep, drop = FALSE]
+            )
+        })
 
     } else {
         sumstats_transformed <- sumstats
@@ -254,12 +264,49 @@ bca_glm_oneshot <- function(sumstats, use_local_intercepts, glm_prior_lamda=0, a
     params_oneshot$beta_l <- updated_params$beta
     params_oneshot$CI <- confeR::get_bayes_ci_normal(params_oneshot, alpha)
 
-    if (use_local_intercepts) {
+    if (pooling == "partial") {
+        # empirical bayes shrinakge
+        b_hat  <- as.numeric(local_intercepts["(Intercept)", ])
+        s2_hat <- as.numeric(local_intercepts["sigma2", ])
+
+        eb_loglik <- function(par) {
+            mu  <- par[1]
+            tau2 <- exp(par[2])   # work on log(tau2) for positivity
+            0.5*sum(log(tau2 + s2_hat) + (b_hat - mu)^2 / (tau2 + s2_hat))
+        }
+        opt <- optim(c(mean(b_hat), log(var(b_hat))), eb_loglik,
+                    method = "BFGS", hessian = TRUE)
+
+        mu_hat  <- opt$par[1]
+        tau2_hat<- exp(opt$par[2])
+
+        weights <- tau2_hat / (tau2_hat + s2_hat)
+        shrunk <- t(matrix(weights * b_hat + (1-weights) * mu_hat))
+        
+        inames <- lapply(seq_len(n_sites), function(x) paste0("Intercept_", x))
+        colnames(shrunk) <- inames
+        params_oneshot$beta_l <- as.matrix(rbind(t(shrunk), params_oneshot$beta_l))
+        params_oneshot$beta_l <- params_oneshot$beta_l[rownames(params_oneshot$beta_l) != "(Intercept)", , drop = FALSE]
+        params_oneshot$CI <- params_oneshot$CI[rownames(params_oneshot$CI) != "(Intercept)", , drop = FALSE]
+        params_oneshot$sigma_l <- params_oneshot$sigma_l[rownames(params_oneshot$sigma_l) != "(Intercept)",
+                                                         colnames(params_oneshot$sigma_l) != "(Intercept)", drop=FALSE]
+
+        local_s2 <- diag(local_intercepts["sigma2", ])
+        rownames(local_s2) <- inames
+        colnames(local_s2) <- inames
+        sig2 <- Matrix::bdiag(local_s2, params_oneshot$sigma_l)
+        rownames(sig2) <- c(rownames(local_s2), rownames(params_oneshot$sigma_l))
+        params_oneshot$sigma_l <- as.matrix(sig2)
+        params_oneshot$CI <- confeR::get_bayes_ci_normal(params_oneshot, alpha)
+
+    }
+
+    if (pooling == "none") {
         params_oneshot$beta_l <- as.matrix(rbind(t(local_intercepts["(Intercept)", ]), params_oneshot$beta_l))
         colnames(params_oneshot$beta_l) <- NULL
         intercept_s2 <- list("beta_l"=t(local_intercepts["(Intercept)", ]),
                              "sigma_l"=diag(local_intercepts["sigma2", ]))
-        interecept_ci <- get_bayes_ci_normal(intercept_s2, alpha)
+        interecept_ci <- confeR::get_bayes_ci_normal(intercept_s2, alpha)
         names(interecept_ci) <- names(params_oneshot$CI)
         params_oneshot$CI <- rbind(interecept_ci, params_oneshot$CI)
     }
@@ -311,7 +358,8 @@ bca_oneshot <- function(sumstats, family, use_local_intercepts, use_local_varian
     }
 
     if (family != "gaussian" || family == "gaussian_forced_glm") {
-        params_oneshot <- bca_glm_oneshot(sumstats, use_local_intercepts, glm_prior_lamda, alpha)
+        pooling <- if (use_local_intercepts) "partial" else "none"
+        params_oneshot <- bca_glm_oneshot(sumstats, pooling, glm_prior_lamda, alpha)
     } else {
         params_oneshot <- list()
         prior_params <- get_linreg_prior(covariates, use_local_intercepts, n_sites, epsilon = epsilon)
