@@ -6,8 +6,8 @@ The **confeR** R package provides methods for performing conjugate federated inf
 ## Installation
 
 ```r
-## CRAN version
-install.packages("confeR")
+## CRAN version (TBA)
+## install.packages("confeR")
 
 ## development version from GitLab
 install.packages("remotes")

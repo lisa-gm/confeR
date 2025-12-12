@@ -3,6 +3,7 @@
 export(bayes_lin_reg_post_map)
 export(bayes_lin_reg_post_params)
 export(bayes_lin_reg_stats)
+export(bca_glm_oneshot)
 export(bca_iterate_sites)
 export(bca_oneshot)
 export(forest_box)

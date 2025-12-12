@@ -10,7 +10,7 @@ This repository contains
 To cite our work, use the following BibTeX reference
 
 ```BibTeX
-@article{DegenHeld2025,
+@article{Degen2025,
   year = {2025},
   author = {Peter Methys Degen and Samuel Pawel and Leonhard Held},
   title = {Bayesian conjugate analysis for federated statistical inference},
@@ -19,7 +19,7 @@ To cite our work, use the following BibTeX reference
 }
 ```
 
-## Reproducing the paper with Docker
+## Reproducing the paper with Docker (TO DO)
 
 Make sure to have Docker and Make installed, then run `make docker` from the
 root directory of this git repository. This will install all necessary
@@ -32,8 +32,6 @@ the working directory to `./paper` when running R interactively).
 
 - Dockerize
 - Improve documentation
-- Tests
-- Box check for glm
-- Local intercepts for glm
-- Support user-supplied prior
-- Box probability compute local sigma2
+- More tests
+- pBox check for normal model
+- Random effects for normal model
