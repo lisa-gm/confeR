@@ -22,10 +22,10 @@ See [example.ipynb](example.ipynb) for a more thorough explanation.
 library(confeR)
 
 data(nurses_hom, package = "confeR")
-summary_stats <- nurses_hom$summary_stats
+summary_stats <- nurses_hom$summary_stats_hom
 
 # If true, use fixed local intercepts for each site, else use only a global intercept
-use_local_intercepts <- TRUE 
+use_local_intercepts <- FALSE 
 
 params_oneshot <- bca_oneshot(summary_stats use_local_intercepts, family="gaussian")
 df_bca <- tidy_results(params_oneshot, use_local_intercepts)

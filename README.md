@@ -36,3 +36,4 @@ the working directory to `./paper` when running R interactively).
 - pBox check for normal model
 - Random effects for normal model
 - Document data
+- Convert ipynb to qmd
