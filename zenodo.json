@@ -1,0 +1,14 @@
+{
+    "title": "Bayesian conjguate analysis",
+    "upload_type": "software",
+    "description": "Code repository for the paper 'Bayesian conjguate analysis for federated statistical inference' by Degen, Pawel & Held (2025)",
+    "access_right": "open",
+    "license": "cc-by",
+    "keywords": ["Bayesian statistics", "Federated inference", "Evidence synthesis"],
+    "creators": [
+        {
+            "name": "Degen, Peter",
+            "orcid": "0009-0004-0706-9200"
+        }
+    ]
+}
