@@ -1,12 +1,12 @@
 all: docker
 .PHONY: all dbuild docker
 
-FILE=confeR
+FILE=confer
 
 ## build docker image (requires root access for docker)
 dbuild: Dockerfile
 	docker build \
-    -t $(FILE) .
+	-t $(FILE) .
 
 ## run RStudio in docker container
 docker: dbuild
