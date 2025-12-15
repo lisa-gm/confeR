@@ -35,3 +35,4 @@ the working directory to `./paper` when running R interactively).
 - More tests
 - pBox check for normal model
 - Random effects for normal model
+- Document data

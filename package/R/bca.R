@@ -282,7 +282,7 @@ bca_glm_oneshot <- function(sumstats, pooling="none", glm_prior_lamda=0, alpha=0
 
         weights <- tau2_hat / (tau2_hat + s2_hat)
         shrunk <- t(matrix(weights * b_hat + (1-weights) * mu_hat))
-        
+
         inames <- lapply(seq_len(n_sites), function(x) paste0("Intercept_", x))
         colnames(shrunk) <- inames
         params_oneshot$beta_l <- as.matrix(rbind(t(shrunk), params_oneshot$beta_l))
