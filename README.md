@@ -19,7 +19,7 @@ To cite our work, use the following BibTeX reference
 }
 ```
 
-## Reproducing the paper with Docker (TO DO)
+## Reproducing the paper with Docker
 
 Make sure to have Docker and Make installed, then run `make docker` from the
 root directory of this git repository. This will install all necessary
@@ -28,12 +28,21 @@ dependencies. RStudio Server can then be opened from a browser
 contains all code for the results from the paper, can be rerun (make sure to set
 the working directory to `./paper` when running R interactively).
 
+---
+
+This repository is published to Zenodo via https://gitlab.com/sbeniamine/gitlab2zenodo. Whenever a new git tag is pushed to GitLab, a new Zenodo version is pushed via a GitLab CI workflow.
+
+```{bash}
+git tag v1.0.0  # modify version number as needed
+git push origin v1.0.0
+```
+
+---
+
 ## To do
 
-- Dockerize
 - Improve documentation
 - More tests
 - pBox check for normal model
 - Random effects for normal model
 - Document data
-- Convert ipynb to qmd

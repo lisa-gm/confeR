@@ -1,0 +1,657 @@
+---
+title: 'Federated Inference: Methods Comparison'
+engine: knitr
+---
+
+
+## Load and pre-process data
+
+```{r}
+#| vscode: {languageId: r}
+
+#source(".Rprofile", local = TRUE)
+
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(confeR)
+
+source("scripts/functions.R")
+
+set.seed(123)
+
+# Select data set
+
+## Logistic regression
+dataname <- "trauma"
+#dataname <- "trauma_shuffled"
+
+# try this too?
+# data(covid, package = "pda")
+# data.frame(covid)
+
+## Linear regression
+
+#dataname <- "Nurses"
+#dataname <- "Nurses_glm"
+#dataname <- "Nurses_sub" # subsampled for smaller hospital sizes
+#dataname <- "LOS"
+
+#dataname <- "Nurses_shuffled"
+
+#dataname <- "sim-linear-1-out"
+#dataname <- "sim-linear-1"
+#dataname <- "sim-nurses-1-out"
+# dataname <- "sim-nurses-1"
+dataname <- "nurses_hom"
+
+# Name of the column designating the center id
+center_name <- "hospital"
+
+# Enum, don't change vals
+Heterogeneity <- list(
+    NONE = "none",     # global intercept
+    FIXED = "fixed",   # local fixed intercepts
+    RANDOM = "random"  # local random intercepts
+)
+
+heterogeneity <- Heterogeneity$NONE
+heterogeneity <- Heterogeneity$FIXED
+#heterogeneity <- Heterogeneity$RANDOM
+
+use_local_variances <- FALSE
+
+if (startsWith(dataname, "trauma")) {
+        data(trauma, package = "BFI")
+        data_raw <- trauma
+} else if (startsWith(dataname, "nurses_hom")) {
+        data(nurses_hom, package = "confeR")
+        data_raw <- nurses_hom$data_ipd
+} else if (startsWith(dataname, "Nurses")) {
+        data(Nurses, package = "BFI")
+        data_raw <- Nurses
+} else if (startsWith(dataname, "LOS")) {
+        data(LOS, package = "pda")
+        data_raw <- LOS
+        data_raw <- rename(data_raw, !!center_name := site)
+        data_raw$hospital <- as.factor(sub("^site", "", data_raw$hospital))
+} else {
+        data_raw <- read.csv(paste0("data/raw/", dataname, ".csv"), row.names = 1)
+}
+
+# Shuffling center simulates homogeneous case
+if (endsWith(dataname, "_shuffled")) {
+        data_raw[[center_name]] <- sample(data_raw[[center_name]])
+}
+
+if (endsWith(dataname, "_sub")) {
+    print("Subsampling data...")
+    subsample_prop <- 0.2 # keep this fraction of patients
+    data_raw <- data_raw |>
+        group_by(hospital) |>
+        slice_sample(prop = subsample_prop, replace = FALSE) |>
+        ungroup()
+}
+
+raw_dataname <- dataname
+if (heterogeneity == Heterogeneity$FIXED) {
+    dataname <- paste0(dataname, "_", "local_int")
+} else if (heterogeneity == Heterogeneity$RANDOM) {
+    dataname <- paste0(dataname, "_", "local_int_re")
+}
+if (use_local_variances) {
+    dataname <- paste0(dataname, "_", "local_var")
+}
+
+data_raw[[center_name]] <- factor(data_raw[[center_name]],
+                        levels = sort(unique(data_raw[[center_name]]),
+                        decreasing = FALSE))
+
+# Convert factors to int, only valid for two-level factors (0, 1)
+data_raw[] <- lapply(data_raw, function(col) {
+  if (is.factor(col)) {
+    lev <- levels(col)
+    if (setequal(lev, c("0", "1"))) {
+      return(as.numeric(as.character(col)))
+    } else {
+      print("Warning: factors with more than two levels not yet supported; use dummy-encoding")
+    }
+  }
+  col
+})
+
+dataname
+head(data_raw)
+```
+
+```{r}
+#| vscode: {languageId: r}
+table(data_raw[[center_name]])
+median(table(data_raw[[center_name]]))
+sort(unique(data_raw[[center_name]]), decreasing = FALSE)
+```
+
+```{r}
+#| vscode: {languageId: r}
+scale_numeric_cols <- function(data) {
+  data[] <- lapply(data, function(x) if (is.numeric(x)) scale(x)[, 1] else x)
+  data
+}
+
+scale_all_cols <- function(data, center = TRUE, scale = TRUE) {
+    require(dplyr)
+    data |>
+        mutate(across(where(is.numeric), ~ as.numeric(scale(.x, center = center, scale = scale))))
+}
+
+one_hot <- function(df, cols_to_encode) {
+    dummies <- model.matrix(~ . - 1, data = df[cols_to_encode])
+    cbind(df[setdiff(names(df), cols_to_encode)], dummies)
+}
+
+if (startsWith(dataname, "trauma")) {
+    data_norm <- data_raw |>
+        # don't need to normalize within group as combined mean and sd can be computed without combining data
+        mutate(
+            age = scale(age),
+            ISS = scale(ISS),
+            GCS = scale(GCS)
+        )
+
+    model <- mortality ~ sex + age + ISS + GCS
+    model_no_int <- as.formula(paste("mortality ~ 0 + sex + age + ISS + GCS +", center_name))
+    family <- "binomial" #(link = "logit")
+
+} else if (startsWith(dataname, "Nurses") || startsWith(dataname, "sim-nurses") || startsWith(dataname, "nurses_hom")) {
+    if ("experience" %in% colnames(data_raw))
+        data_raw <- data_raw |> rename(experien=experience)
+    data_norm <- data_raw |>
+    mutate(
+            age = scale(age),
+            experience = scale(experien),
+            stress = scale(stress),
+
+            # keep numeric for now; fine if binary 0, 1
+            #gender = factor(gender),
+            #wardtype = factor(wardtype)
+    )
+    #data_norm <- scale_numeric_cols(data_raw) |> mutate(experience=experien)
+    model_no_int <- as.formula(paste("stress ~ 0 + gender + age + experience +", center_name))
+    if (heterogeneity != Heterogeneity$NONE) {
+        model <- stress ~ gender + age + experience  # BFI paper leaves out wardtype
+    } else {
+        model <- stress ~ gender + age + experience + wardtype
+    }
+    family <- "gaussian"
+} else if (startsWith(dataname, "LOS")) {
+    data_norm <- data_raw |>
+    mutate(
+            lab = scale(lab),
+            los = scale(los),
+    )
+    data_norm <- one_hot(data_norm, c("age", "sex")) |> rename("sex"="sexM")
+    model_no_int <- as.formula(paste("los ~ 0 + sex + ageyoung + ageold + lab +", center_name))
+    model <- los ~ sex + ageyoung + ageold + lab
+    family <- "gaussian"
+
+} else if (startsWith(dataname, "sim-linear")) {
+    data_norm <- scale_numeric_cols(data_raw)
+    predictors <- setdiff(names(data_norm), c("y", "hospital"))
+    model <- as.formula(paste("y ~", paste(predictors, collapse = " + ")))
+    if (heterogeneity != Heterogeneity$NONE) {
+        model_no_int <- as.formula(paste("y ~ 0 +", paste(predictors, collapse = " + "), "+ hospital"))
+    }
+    family <- "gaussian"
+} else {
+  stop()
+}
+
+covariates <- attr(terms(model), "term.labels")
+#covariates_local <- covariates[covariates != center_name]
+outcome <- all.vars(model)[1]
+
+if (center_name %in% covariates) {
+    data <- data_norm[c(outcome, covariates)]
+} else {
+    data <- data_norm[c(center_name, outcome, covariates)]
+}
+
+if (endsWith(dataname, "_glm")) {
+    family_alt <- "gaussian_forced_glm"
+} else {
+    family_alt <- family
+}
+
+sites <- levels(data[[center_name]])
+
+data_split <- data |>
+  group_by(.data[[center_name]]) |>
+  group_split()
+
+n_sites <- length(data_split)
+head(data_split[[1]])
+n_data <- sum(unlist(lapply(data_split, nrow)))
+
+if (heterogeneity != Heterogeneity$NONE) {
+    p <- length(covariates) + n_sites
+} else {
+    p <- length(covariates)
+}
+p
+```
+
+# Using Bayesian Conjguate Analysis
+
+```{r}
+#| vscode: {languageId: r}
+if (heterogeneity != Heterogeneity$RANDOM) {
+    use_local_intercepts_bca <- heterogeneity == Heterogeneity$FIXED
+    sumstats <- bca_iterate_sites(model, family_alt, data_split, use_local_intercepts_bca)
+    params_oneshot <- bca_oneshot(sumstats, family_alt, use_local_intercepts_bca, use_local_variances, 
+                                    glm_prior_lamda=0.1)  # setting 0 equivalent to FE in normal model
+    df_bca <- tidy_results(params_oneshot, use_local_intercepts_bca)
+}
+```
+
+# Using BFI
+
+```{r}
+#| vscode: {languageId: r}
+if (heterogeneity != Heterogeneity$RANDOM) {
+    use_local_intercepts_bfi <- heterogeneity == Heterogeneity$FIXED
+    res_bfi_sub <- bfi_sub(data_split, family, outcome, covariates, center_name)
+    df_bfi <- fit_bfi(data_split, family, res_bfi_sub, use_local_intercepts_bfi, use_local_variances, lambda=0.1)
+}
+```
+
+# Using Multivariate Meta-Analysis
+
+```{r}
+#| vscode: {languageId: r}
+# Fit local GLMs
+local_glms <- fit_local_glms(data_split, model, outcome, covariates, center_name)
+coef_list <- local_glms$coef_list
+se_list <- local_glms$se_list
+cov_list <- local_glms$cov_list
+sigma2_list <- local_glms$sigma2_list
+
+coef_list_with_sigma2 <- lapply(seq_along(coef_list), function(i) {c(coef_list[[i]], "sigma2"=sigma2_list[[i]])})
+cov_list_with_sigma2 <- lapply(seq_along(cov_list), function(i) {
+                    mat <- cov_list[[i]]
+                    sigma2 <- log(sigma2_list[[i]])
+                    df.res <- local_glms$df.res_list[[i]]
+                    var_sigma2 <- 2 * sigma2^2 / (df.res)
+                    p <- nrow(mat)
+                    joint_cov <- matrix(0, nrow = p + 1, ncol = p + 1)
+                    joint_cov[1:p, 1:p] <- mat
+                    joint_cov[p + 1, p + 1] <- var_sigma2
+                    rownames(joint_cov) <- colnames(joint_cov) <- c(rownames(mat), "sigma2")
+                    joint_cov
+})
+```
+
+```{r}
+#| vscode: {languageId: r}
+use_joint_covariance <- FALSE # don't use joint, sigma2 is not normal distributed... or maybe try log transform
+
+# Meta-analyse GLM parameters
+if (heterogeneity != Heterogeneity$RANDOM) {
+
+    use_local_intercepts_meta <- heterogeneity == Heterogeneity$FIXED
+
+    if (!use_joint_covariance) {
+        df_meta_mv_fe <- fit_mv_meta_fixed(coef_list, cov_list, use_local_intercepts_meta)
+        df_meta_mv_reml <- fit_mv_meta_random(coef_list, cov_list, method="REML", use_local_intercepts_meta)
+    } else {
+        df_meta_mv_fe <- fit_mv_meta_fixed(coef_list_with_sigma2, cov_list_with_sigma2, use_local_intercepts_meta)
+        df_meta_mv_reml <- fit_mv_meta_random(coef_list_with_sigma2, cov_list_with_sigma2, method="REML", use_local_intercepts_meta)
+    }
+
+
+    if (family == "gaussian" && !use_joint_covariance) {
+        use_boot_CI <- FALSE
+        if (use_boot_CI) {
+            boot_means <- replicate(10000, mean(sample(local_glms$sigma2_list, replace = TRUE)))
+            ci <- quantile(boot_means, c(0.025, 0.975))
+            lower <- ci[[1]]
+            upper <- ci[[2]]
+        } else {
+            # log transformed sigma2
+            # result <- meta_sigma2(local_glms$sigma2_list, local_glms$df.res_list)
+            # sigma2 <- result$pooled_sigma2 
+            # lower <- result$ci_lower
+            # upper <- result$ci_upper
+
+            # weighted mean of error variances
+            alpha = 0.05
+            s2 <- local_glms$sigma2_list
+            dfr <- sum(local_glms$df.res_list)
+            #weights <- local_glms$n_list # sample size weighted FE, decent estimate
+            weights <- local_glms$df.res_list # df.res weighted FE, decent estimate
+            s2_var <- 2 * s2^2 / local_glms$df.res_list
+            #weights <-  1 / s2_var # inverse variance weighted FE, terrible estimate, same as joint
+            sigma2 <- sum(s2 * weights) / sum(weights)
+            # https://www.graphpad.com/support/faq/the-confidence-interval-of-a-standard-deviation/
+            lower <- sigma2 * (dfr) / qchisq(1 - alpha / 2, df = dfr)
+            upper <- sigma2 * (dfr) / qchisq(alpha / 2, df = dfr)
+
+            # simple mean of error variances (gives best estimate, bad CI)
+            # sigma2 <- mean(local_glms$sigma2_list)
+            # sigma2_sd <- sd(local_glms$sigma2_list)
+            # n <- length(local_glms$sigma2_list)
+            # error_margin <- qt(0.975, df = n - 1) * sigma2_sd / sqrt(n)
+            # lower <- sigma2 - error_margin
+            # upper <- sigma2 + error_margin
+        }
+
+        row <- list("sigma2", sigma2, lower, upper, "FE")
+        df_sigma2 <- as.data.frame(row, stringsAsFactors = FALSE)
+        colnames(df_sigma2) <- colnames(df_meta_mv_fe)
+        df_meta_mv_fe <- rbind(df_meta_mv_fe, df_sigma2)
+
+        row <- list("sigma2", sigma2, lower, upper, "REML")
+        df_sigma2 <- as.data.frame(row, stringsAsFactors = FALSE)
+        colnames(df_sigma2) <- colnames(df_meta_mv_fe)
+        df_meta_mv_reml <- rbind(df_meta_mv_reml, df_sigma2)
+    }
+}
+```
+
+# Using PDA
+
+```{r}
+#| output: false
+fit.pda <- fit_pda(outcome, covariates,
+                        data_split, sites, dataname, family, dir="data/pda", heterogeneity_effect = heterogeneity)
+```
+```{r}
+#| vscode: {languageId: r}
+#| output: false
+if (heterogeneity != Heterogeneity$RANDOM) {
+    fit.pda <- fit_pda(outcome, covariates,
+                        data_split, sites, dataname, family, dir="data/pda", heterogeneity_effect = heterogeneity)
+    df_pda <- tidy_pda(fit.pda, family,
+                        covariates, n_sites, n_data, alpha=0.05, heterogeneity_effect = heterogeneity)
+}
+
+# ODAL doesn't compute local intercepts? quick hack: copy global intercept
+if (family != "gaussian") {
+    new_rows <-
+        df_pda |>
+        filter(Covariate == "(Intercept)") |>
+        slice(rep(1, n_sites)) |>
+        mutate(Covariate = paste0("Intercept_", row_number()))
+    df_pda <- bind_rows(df_pda, new_rows) |> filter(Covariate != "(Intercept)")
+}
+```
+
+```{r}
+#| vscode: {languageId: r}
+#| output: false
+if (heterogeneity != Heterogeneity$NONE) {
+    fit.pda.re <- fit_pda(outcome, covariates,
+                        data_split, sites, dataname, family, dir="data/pda", heterogeneity_effect = "random")
+    df_pda_re <- tidy_pda(fit.pda.re, family,
+                        covariates, n_sites, n_data, alpha=0.05,  heterogeneity_effect = "random")
+}
+```
+
+# Using combined data (ground truth)
+
+```{r}
+#| vscode: {languageId: r}
+df_combined <- fit_combined_glmm(data, family, model, model_no_int, center_name, heterogeneity_effect=heterogeneity)
+```
+
+```{r}
+#| vscode: {languageId: r}
+if (heterogeneity == Heterogeneity$FIXED) {
+    df_combined_re <- fit_combined_glmm(data, family, model, model_no_int,
+                                        center_name, heterogeneity_effect="random")
+    int_re <- df_combined_re |> filter(startsWith(Covariate, "Intercept_"))
+    int_fe <- df_combined |> filter(startsWith(Covariate, "Intercept_"))
+
+    df_pda_re_fe <- data.frame(
+    group     = rownames(int_fe),
+    FE        = int_fe$Estimate,
+    RE        = int_re$Estimate
+    )
+
+    ggplot(df_pda_re_fe, aes(x = FE, y = RE, label = group)) +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "grey50") +
+    geom_point(size = 2) +
+    geom_hline(yintercept=mean(int_re$Estimate)) +
+    geom_vline(xintercept=mean(int_fe$Estimate)) +
+    geom_text(nudge_x = 0.02, nudge_y = 0.02, size = 3) +
+    labs(
+        x = "Fixed-effects estimate",
+        y = "Random-effects estimate",
+        title = "Shrinkage: RE vs FE"
+    ) +
+    theme_minimal()
+}
+```
+
+```{r}
+#| vscode: {languageId: r}
+# ff <- fit_combined_glm(data, family, model, model_no_int, use_local_intercepts, center_name, return_fit=TRUE)
+
+# X <- model.matrix(ff)
+# b <- coef(ff)
+# Xb <- X %*% b
+# y <- data$stress
+
+# t(y-Xb) %*% (y-Xb) / df.residual(ff)
+# (t(y) %*% y - t(b) %*% t(X) %*% Xb) / df.residual(ff)
+# sigma(ff)^2
+```
+
+# Compare methods
+
+```{r}
+#| vscode: {languageId: r}
+df_merged <- rbind(df_combined, df_bca, df_pda, df_bfi, df_meta_mv_fe, df_meta_mv_reml)
+df_merged$Method <- factor(df_merged$Method, levels=unique(df_merged$Method))
+levels(df_merged$Method)
+```
+
+```{r}
+#| vscode: {languageId: r}
+library(ggplot2)
+library(ggpubr)
+library(stringr)
+
+if (heterogeneity != Heterogeneity$RANDOM) {
+    df_merged_all <- rbind(df_combined, df_bca, df_pda, df_bfi, df_meta_mv_fe, df_meta_mv_reml)
+} else {
+    df_merged_all <- rbind(df_combined, df_pda)
+}
+
+method_order <- unique(df_merged_all$Method)
+df_merged_all$Method <- factor(df_merged_all$Method, levels = method_order)
+
+if (heterogeneity != Heterogeneity$NONE) {
+
+    # method_order <- c(method_order, "Combined_RE", "PDA_RE")
+    # df_merged <- rbind(df_merged, df_combined_re, df_pda_re)
+
+    df_merged <- df_merged_all |>
+    filter(
+        Covariate != "(Intercept)",
+        !str_starts(Covariate, "Intercept_")
+    )
+}
+
+write.csv(df_merged_all, paste0("data/summarized/params.", dataname, ".csv"))
+
+huemap <- setNames(get_palette(palette = "npg", length(levels(df_merged$Method))), levels(df_merged$Method))
+```
+
+```{r}
+#| vscode: {languageId: r}
+plot_params <- function(dataname, df_merged) {
+    require(ggplot2)
+    p <- ggplot(df_merged, aes(x = Method, y = Estimate, color = Method)) +
+    geom_point(position = position_dodge(width = 0.5)) +
+    geom_errorbar(aes(ymin = lower, ymax = upper), 
+                width = 0.2,
+                position = position_dodge(width = 0.5)) +
+    scale_color_manual(values = huemap) +
+    facet_wrap(~ Covariate, scales = "free_y") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    labs(y = "Estimate ± 95% CI", x = NULL)
+
+    ggsave(paste0("figures_tmp/params.", dataname, ".png"), bg = "white")
+    p
+}
+
+plot_params(dataname, df_merged)
+
+# if (startsWith(dataname, "sim-")) {
+#     simtruth <- read.csv(paste0("data/raw/", raw_dataname, ".truth.csv"))
+#     simtruth
+# }
+```
+
+```{r}
+#| vscode: {languageId: r}
+# Intercepts
+
+if (heterogeneity != Heterogeneity$NONE) {}
+
+dfi <- df_merged_all |> filter(startsWith(Covariate, "Intercept_") & !(Method %in% c("FE")))
+
+df_wide <- dfi |> select(Method, Covariate, Estimate) |>
+  pivot_wider(
+    names_from = Method,
+    values_from = Estimate
+  )
+
+# Long format for plotting y-values for non-Combined methods
+df_plot <- df_wide %>%
+  pivot_longer(
+    cols = -c(Covariate, Combined),
+    names_to = "Method",
+    values_to = "Estimate_other"
+  )
+
+# Scatterplot
+ggplot(df_plot, aes(x = Combined, y = Estimate_other, color = Method)) +
+  geom_point(size = 2) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  labs(
+    x = "Estimate (Combined)",
+    y = "Estimate (Other Methods)",
+    color = "Method",
+    title = "Comparison of Combined vs. Other Methods by Covariate"
+  ) +
+  theme_bw()
+```
+
+```{r}
+#| vscode: {languageId: r}
+if (family == "gaussian" && heterogeneity != Heterogeneity$NONE) {
+
+    shapiro.test(fit.pda$uhat)
+    par(bg = "white")
+    qqnorm(fit.pda$uhat) + theme_minimal()
+    qqline(fit.pda$uhat, col = "red")
+
+    x <- df_combined[startsWith(df_combined$Covariate, "Intercept_"), "Estimate"]
+    shapiro.test(x)
+    par(bg = "white")
+    qqnorm(x) + theme_minimal()
+    qqline(x, col = "red")
+
+    plot(x, df_pda$Estimate[1:n_sites])
+}
+```
+
+# Reverse-Bayes
+
+```{r}
+#| vscode: {languageId: r}
+stopifnot(family=="gaussian")  # not yet implemented
+```
+
+```{r}
+#| vscode: {languageId: r}
+use_local_intercepts <- heterogeneity != Heterogeneity$NONE
+box_results <- pred_check(params_oneshot, sumstats, family,
+                                   use_local_intercepts, center_name, remove_intercept = use_local_intercepts)
+pboxes <- box_results$pboxes
+write.csv(pboxes, paste0("data/summarized/pboxes.", dataname, ".csv"))
+```
+
+```{r}
+#| vscode: {languageId: r}
+cid <- 9
+-log2(pboxes)
+-log2(pboxes)[cid]
+local_glms$sigma2_list
+as.vector(t(lapply(data_split, nrow)))
+mean(local_glms$sigma2_list)
+```
+
+```{r}
+#| vscode: {languageId: r}
+ggplot(data=NULL, aes(y = -log2(pboxes), x = local_glms$sigma2_list)) +
+  geom_point(color = "steelblue") +
+  theme_minimal()
+```
+
+## Box prior predictive check
+
+```{r}
+#| vscode: {languageId: r}
+gghistogram(as.numeric(pboxes), fill = "lightgray", bins=10)
+```
+
+```{r}
+#| vscode: {languageId: r}
+df <- data.frame(Center = seq_along(pboxes), neg_log_p = -log10(pboxes))
+
+ggplot(df, aes(x = Center, y = neg_log_p)) +
+  geom_point(color = "steelblue") +
+  theme_minimal() +
+  labs(
+    x = "Center",
+    y = expression(-log[10](p)),
+    title = "Manhattan plot for pbox"
+  ) +
+  geom_hline(yintercept = -log10(0.05 / n_sites), linetype = "dashed", color = "red")
+```
+
+## Forest plot
+
+```{r}
+#| vscode: {languageId: r}
+if (heterogeneity == Heterogeneity$RANDOM) stop()
+df_forest <- prepare_forest_plot(df_bca, sumstats, alpha=0.05, family=family)
+df_forest <- df_forest |> filter(df_forest$Covariate != "sigma2")
+# df_forest <- df_forest |> mutate(Covariate = ifelse(Covariate == "sigma2", "sigma^2", Covariate)) |> mutate(
+#                             Covariate = factor(
+#                             Covariate,
+#                             levels = c(setdiff(unique(Covariate), "sigma^2"), "sigma^2")
+#                         ))
+forest_plot(df_forest, pboxes, outfile = paste0("figures_tmp/forest.", dataname, ".pdf"),
+            inline_plot = TRUE, use_log_scale = TRUE, order_box = TRUE)
+```
+
+```{r}
+#| vscode: {languageId: r}
+# sigma2: Forest bca_oneshot with 1 site equals local glm
+df_forest <- prepare_forest_plot(df_bca, sumstats, alpha=0.05, family=family)
+aa <- unname(unlist(as.vector(df_forest |> filter(Covariate == "sigma2" & site != "Federated") |> select(Estimate))))
+bb <- local_glms$sigma2_list
+all.equal(aa, bb)
+```
+
+# SessionInfo
+
+```{r}
+#| vscode: {languageId: r}
+sessionInfo()
+```
+
