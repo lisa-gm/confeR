@@ -9,7 +9,9 @@ engine: knitr
 ```{r}
 #| vscode: {languageId: r}
 
-#source(".Rprofile", local = TRUE)
+# Skipped when running in Docker container
+if (file.exists(".Rprofile"))
+    source(".Rprofile", local = TRUE)
 
 library(dplyr)
 library(ggplot2)
@@ -20,30 +22,24 @@ source("scripts/functions.R")
 
 set.seed(123)
 
-# Select data set
+```
+
+```{r}
+#| vscode: {languageId: r}
+
+###### Select data set ######
 
 ## Logistic regression
-dataname <- "trauma"
-#dataname <- "trauma_shuffled"
 
-# try this too?
-# data(covid, package = "pda")
-# data.frame(covid)
+# dataname <- "trauma"
+# dataname <- "trauma_shuffled"
 
 ## Linear regression
 
-#dataname <- "Nurses"
-#dataname <- "Nurses_glm"
-#dataname <- "Nurses_sub" # subsampled for smaller hospital sizes
-#dataname <- "LOS"
-
-#dataname <- "Nurses_shuffled"
-
-#dataname <- "sim-linear-1-out"
-#dataname <- "sim-linear-1"
-#dataname <- "sim-nurses-1-out"
-# dataname <- "sim-nurses-1"
+# dataname <- "Nurses"
 dataname <- "nurses_hom"
+
+#############################
 
 # Name of the column designating the center id
 center_name <- "hospital"
