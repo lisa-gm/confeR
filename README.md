@@ -45,4 +45,3 @@ git push origin v1.0.0
 - More tests
 - pBox check for normal model
 - Random effects for normal model
-- Document data

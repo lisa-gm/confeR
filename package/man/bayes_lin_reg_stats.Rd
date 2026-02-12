@@ -10,7 +10,7 @@ bayes_lin_reg_stats(
   covariates,
   weights = NULL,
   k = 0,
-  n_sites = 0
+  n_sites = 1
 )
 }
 \arguments{
@@ -26,7 +26,7 @@ NULL.}
 \item{k}{Site number in case local intercepts are used. Default 0 corresponds
 to not using local intercepts.}
 
-\item{n_sites}{Number of sites. Default 0.}
+\item{n_sites}{Number of sites. Default 1.}
 }
 \value{
 List with transmitted summary statistics for each local site.

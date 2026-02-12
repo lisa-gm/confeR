@@ -82,21 +82,24 @@ bca_iterate_sites <- function(model, family, data_split,
 #'   NULL.
 #' @param k Site number in case local intercepts are used. Default 0 corresponds
 #'   to not using local intercepts.
-#' @param n_sites Number of sites. Default 0.
+#' @param n_sites Number of sites. Default 1.
 #'
 #' @return List with transmitted summary statistics for each local site.
 #'
 #' @author Peter Degen
 #'
 #' @export
-bayes_lin_reg_stats <- function(df, outcome, covariates, weights = NULL, k = 0, n_sites = 0) {
+bayes_lin_reg_stats <- function(df, outcome, covariates, weights = NULL, k = 0, n_sites = 1) {
     # Compute summary statistics for Bayesian linear regression
+
+    if (k > n_sites) stop("k cannot be greater than n_sites")
+    if (k == 1 && n_sites == 1) print("Warning: requested local intercepts with only 1 site")
 
     if (k == 0) {
         # Homogeneous setting: 1 global intercept
         df["Intercept"] <- 1
         intercept_colnames <- "Intercept"
-    } else if (k > 0 && n_sites > 0) {
+    } else if (k > 0) {
         # Heterogeneous setting: 1 intercept per local center
         intercepts <- matrix(0, nrow(df), n_sites)
         intercepts[, k] <- 1
@@ -105,7 +108,7 @@ bayes_lin_reg_stats <- function(df, outcome, covariates, weights = NULL, k = 0, 
         colnames(df_new) <- c(colnames(df), intercept_colnames)
         df <- df_new
     } else {
-        stop("k must be >= 0 and n_sites must be > 0 if k > 0")
+        stop("k must be >= 0")
     }
 
     x <- df[, c(intercept_colnames, covariates)]
@@ -214,6 +217,13 @@ get_linreg_prior <- function(covariates, use_local_intercepts, n_sites, epsilon 
     prior_params
 }
 
+
+#' @title BCA GLM one-shot
+#'
+#' @description Perform one-shot computation of GLM parameter estimates given
+#'   transmitted summary statistics. Users should use `bca_oneshot`, which wraps
+#'   this method.
+#'
 #' @export
 bca_glm_oneshot <- function(sumstats, pooling="none", glm_prior_lamda=0, alpha=0.05) {
 
@@ -404,7 +414,7 @@ get_bayes_ci_normal <- function(params_oneshot, alpha = 0.05) {
 
 #' @title BCA tidy results
 #'
-#' @description Tidy results from one-shot
+#' @description Returns a tidy data frame of BCA results.
 #'
 #' @param params_oneshot Parameters returned by `bca_oneshot`.
 #' @param use_local_intercepts Logical. If true, use fixed site-specific

@@ -24,6 +24,8 @@ set.seed(123)
 
 ```
 
+To reproduce Fig. 6 in the paper, select dataname `dataname <- "nurses_hom"` and `heterogeneity <- Heterogeneity$NONE`.
+
 ```{r}
 #| vscode: {languageId: r}
 
@@ -52,7 +54,7 @@ Heterogeneity <- list(
 )
 
 heterogeneity <- Heterogeneity$NONE
-heterogeneity <- Heterogeneity$FIXED
+#heterogeneity <- Heterogeneity$FIXED
 #heterogeneity <- Heterogeneity$RANDOM
 
 use_local_variances <- FALSE
@@ -514,35 +516,36 @@ plot_params(dataname, df_merged)
 #| vscode: {languageId: r}
 # Intercepts
 
-if (heterogeneity != Heterogeneity$NONE) {}
+if (heterogeneity != Heterogeneity$NONE) {
 
-dfi <- df_merged_all |> filter(startsWith(Covariate, "Intercept_") & !(Method %in% c("FE")))
+    dfi <- df_merged_all |> filter(startsWith(Covariate, "Intercept_") & !(Method %in% c("FE")))
 
-df_wide <- dfi |> select(Method, Covariate, Estimate) |>
-  pivot_wider(
-    names_from = Method,
-    values_from = Estimate
-  )
+    df_wide <- dfi |> select(Method, Covariate, Estimate) |>
+    pivot_wider(
+        names_from = Method,
+        values_from = Estimate
+    )
 
-# Long format for plotting y-values for non-Combined methods
-df_plot <- df_wide %>%
-  pivot_longer(
-    cols = -c(Covariate, Combined),
-    names_to = "Method",
-    values_to = "Estimate_other"
-  )
+    # Long format for plotting y-values for non-Combined methods
+    df_plot <- df_wide %>%
+    pivot_longer(
+        cols = -c(Covariate, Combined),
+        names_to = "Method",
+        values_to = "Estimate_other"
+    )
 
-# Scatterplot
-ggplot(df_plot, aes(x = Combined, y = Estimate_other, color = Method)) +
-  geom_point(size = 2) +
-  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
-  labs(
-    x = "Estimate (Combined)",
-    y = "Estimate (Other Methods)",
-    color = "Method",
-    title = "Comparison of Combined vs. Other Methods by Covariate"
-  ) +
-  theme_bw()
+    # Scatterplot
+    ggplot(df_plot, aes(x = Combined, y = Estimate_other, color = Method)) +
+    geom_point(size = 2) +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+    labs(
+        x = "Estimate (Combined)",
+        y = "Estimate (Other Methods)",
+        color = "Method",
+        title = "Comparison of Combined vs. Other Methods by Covariate"
+    ) +
+    theme_bw()
+}
 ```
 
 ```{r}

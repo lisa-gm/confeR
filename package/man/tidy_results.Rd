@@ -16,7 +16,7 @@ intercepts for each local site.}
 Dataframe
 }
 \description{
-Tidy results from one-shot
+Returns a tidy data frame of BCA results.
 }
 \author{
 Peter Degen

@@ -13,9 +13,9 @@ transform_X(X)
 Transformed design matrix X
 }
 \description{
-Take data vector X and convert factors with numeric. Binary
+Take data vector X and convert factors to numeric. Binary
   factors will be encoded by {0, 1}. Factors with more than two levels will
-  be transformed using one-hot encoding, dropping one level to avoud
+  be transformed using one-hot encoding, dropping one level to avoid
   multicollinearity.
 }
 \author{
