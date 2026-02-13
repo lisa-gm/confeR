@@ -4,7 +4,7 @@ This repository contains
 
 1. `./package` The R package **confeR** to perform Bayesian conjugate analysis for federated inference
 
-2. `./paper` Code and data to reproduce result from the paper: *Degen, P. M., Pawel, S., Held.
+2. `./paper` Code and data to reproduce results from the paper: *Degen, P. M., Pawel, S., Held.
    L. (2025). Bayesian conjugate analysis for federated statistical inference. [DOI]*
 
 To cite our work, use the following BibTeX reference
@@ -30,7 +30,7 @@ the working directory to `./paper` when running R interactively).
 
 ---
 
-This repository is published to Zenodo via https://gitlab.com/sbeniamine/gitlab2zenodo. Whenever a new git tag is pushed to GitLab, a new Zenodo version is pushed via a GitLab CI workflow.
+This repository is published to Zenodo via [https://gitlab.com/sbeniamine/gitlab2zenodo](https://gitlab.com/sbeniamine/gitlab2zenodo). Whenever a new git tag is pushed to GitLab, a new Zenodo version is pushed via a GitLab CI workflow.
 
 ```{bash}
 git tag v1.0.0  # modify version number as needed

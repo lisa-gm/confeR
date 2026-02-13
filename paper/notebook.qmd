@@ -22,9 +22,20 @@ source("scripts/functions.R")
 
 set.seed(123)
 
+outpath <- "data/summarized"
+
+# Create if it doesn't exist
+if (!dir.exists(outpath)) {
+  dir.create(outpath, recursive = TRUE)
+}
+
 ```
 
-To reproduce Fig. 6 in the paper, select dataname `dataname <- "nurses_hom"` and `heterogeneity <- Heterogeneity$NONE`.
+- To reproduce Fig. 6 in the paper, select dataname `dataname <- "nurses_hom"` and `heterogeneity <- Heterogeneity$NONE`.
+- To compute summary statistics for Fig. 2, select `dataname <- "trauma_shuffled"` and `heterogeneity <- Heterogeneity$NONE`. The notebook will throw an error in the Reverse-Bayes section, which is not an issue.
+- To compute summary statistics for Fig. 3, select `dataname <- "Nurses"` and `heterogeneity <- Heterogeneity$NONE`.
+- To compute summary statistics for Fig. 4, select `dataname <- "Nurses"` and `heterogeneity <- Heterogeneity$FIXED`.
+- Fig. 5 uses summary statistics computed in the above steps.
 
 ```{r}
 #| vscode: {languageId: r}
@@ -34,12 +45,12 @@ To reproduce Fig. 6 in the paper, select dataname `dataname <- "nurses_hom"` and
 ## Logistic regression
 
 # dataname <- "trauma"
-# dataname <- "trauma_shuffled"
+dataname <- "trauma_shuffled"
 
 ## Linear regression
 
 # dataname <- "Nurses"
-dataname <- "nurses_hom"
+# dataname <- "nurses_hom"
 
 #############################
 
@@ -480,7 +491,7 @@ if (heterogeneity != Heterogeneity$NONE) {
     )
 }
 
-write.csv(df_merged_all, paste0("data/summarized/params.", dataname, ".csv"))
+write.csv(df_merged_all, file.path(outpath, paste0("params.", dataname, ".csv")))
 
 huemap <- setNames(get_palette(palette = "npg", length(levels(df_merged$Method))), levels(df_merged$Method))
 ```
@@ -580,7 +591,7 @@ use_local_intercepts <- heterogeneity != Heterogeneity$NONE
 box_results <- pred_check(params_oneshot, sumstats, family,
                                    use_local_intercepts, center_name, remove_intercept = use_local_intercepts)
 pboxes <- box_results$pboxes
-write.csv(pboxes, paste0("data/summarized/pboxes.", dataname, ".csv"))
+write.csv(pboxes, file.path(outpath, paste0("pboxes", dataname, ".csv")))
 ```
 
 ```{r}
