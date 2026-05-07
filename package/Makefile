@@ -5,7 +5,7 @@
 ## ----------------------------------------------------------------------------
 
 PACKAGE = confeR
-VERSION = 0.1
+VERSION = 0.1.1
 TAR = $(PACKAGE)_$(VERSION).tar.gz
 
 all: build

@@ -1,6 +1,6 @@
 Package: confeR
-Version: 0.1
-Date: 2025-12-18
+Version: 0.1.1
+Date: 2026-05-07
 Authors@R:
     c(person(given = "Peter",
            family = "Degen",

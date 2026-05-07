@@ -1,8 +1,6 @@
-# bfpwr 0.2
+# News
 
-- add function `pbf01seq` to compute characteristics of sequential Bayes factor
-  designs
+## v0.1.1
 
-# XXX 0.1
-
-- package development started
+- Fix `test.r`
+- Fix global intercept for glm
