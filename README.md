@@ -30,7 +30,7 @@ the working directory to `./paper` when running R interactively).
 
 ---
 
-This repository is published to Zenodo via [https://gitlab.com/sbeniamine/gitlab2zenodo](https://gitlab.com/sbeniamine/gitlab2zenodo). Whenever a new git tag is pushed to GitLab, a new Zenodo version is pushed via a GitLab CI workflow.
+This repository is published to Zenodo via [https://gitlab.com/sbeniamine/gitlab2zenodo](https://gitlab.com/sbeniamine/gitlab2zenodo). Whenever a new git tag is pushed to GitLab, a new Zenodo version is pushed via a GitLab CI workflow. The Zenodo repo for the code and data can be found at [https://doi.org/10.5281/zenodo.17942578](https://doi.org/10.5281/zenodo.17942578).
 
 ```{bash}
 git tag v1.0.0  # modify version number as needed

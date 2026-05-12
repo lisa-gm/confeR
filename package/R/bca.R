@@ -28,6 +28,7 @@ bca_iterate_sites <- function(model, family, data_split,
                               use_local_intercepts,
                               outcome = NULL,
                               covariates = NULL,
+                              use_firth = FALSE,
                               alpha = 0.05) {
     if (is.null(outcome)) {
         outcome <- all.vars(model)[1]
@@ -43,7 +44,12 @@ bca_iterate_sites <- function(model, family, data_split,
         # For GLM regression, we locally compute GLM parameters
         if (family != "gaussian" || family == "gaussian_forced_glm") {
             family_alt <- if (family == "gaussian_forced_glm") "gaussian" else family
-            res <- stats::glm(model, family_alt, data_split[[i]])
+            if (use_firth) {
+                library("logistf")
+                res <- logistf(model, data_split[[i]])
+            } else {
+                res <- stats::glm(model, family_alt, data_split[[i]])
+            }
             sumstats[[i]] <- list("beta" = res$coefficients, "sigma" = stats::vcov(res))
 
             if (family_alt %in% c("gaussian", "Gamma", "inverse.gaussian")) {
