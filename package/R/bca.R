@@ -478,9 +478,9 @@ get_reduced_params <- function(center_identity, params_oneshot, sumstats, family
         a_minus_l <- params_oneshot$a_l - sumstats[[l]]$n / 2
         beta_minus_l <- solve(lambda_minus_l) %*% (params_oneshot$lambda_l
             %*% params_oneshot$beta_l - sumstats[[l]]$xy)
-        blb_full <- t(params_oneshot$beta_l) %*% params_oneshot$lambda_l %*% params_oneshot$beta_l
-        blb_local <- t(beta_minus_l) %*% lambda_minus_l %*% beta_minus_l
-        b_minus_l <- params_oneshot$b_l + 0.5 * (blb_full - blb_local - sumstats[[l]]$yy)
+        sslb_full <- t(params_oneshot$beta_l) %*% params_oneshot$lambda_l %*% params_oneshot$beta_l
+        sslb_local <- t(beta_minus_l) %*% lambda_minus_l %*% beta_minus_l
+        b_minus_l <- params_oneshot$b_l + 0.5 * (sslb_full - sslb_local - sumstats[[l]]$yy)
 
         return(list( # nolint: return_linter.
             "lambda_minus_l" = lambda_minus_l,
@@ -490,9 +490,10 @@ get_reduced_params <- function(center_identity, params_oneshot, sumstats, family
         ))
     } else {
         delta_1s <- solve(params_oneshot$sigma_l)
-        delta_l <- solve(sumstats[[l]]$sigma)
+        covs <- colnames(delta_1s)
+        delta_l <- solve(sumstats[[l]]$sigma[covs, covs])
         sigma_minus_l <- solve(delta_1s - delta_l)
-        beta_minus_l <- sigma_minus_l %*% (delta_1s %*% params_oneshot$beta_l - delta_l %*% sumstats[[l]]$beta)
+        beta_minus_l <- sigma_minus_l %*% (delta_1s %*% params_oneshot$beta_l[covs, ] - delta_l %*% sumstats[[l]]$beta[covs])
 
         return(list( # nolint: return_linter.
             "sigma_minus_l" = sigma_minus_l,
@@ -503,12 +504,13 @@ get_reduced_params <- function(center_identity, params_oneshot, sumstats, family
 
 #' @title Box prior predictive tail probability
 #'
-#' @description Check if estimate from specific site is compatible with
+#' @description Check if estimate from specific site is compatissle with
 #'   posterior from all other centers.
 #'
 #' @param center_identity The id of the site to be checked
 #' @param sumstats List of summary statistics from each local site, e.g. obbject
 #'   returned by `bca_iterate_sites`.
+#' @param family Family to pass to glm() call, e.g. "gaussian".
 #' @param covariates Vector of covariate names.
 #' @param n_sites Number of sites.
 #' @param reduced_params Reduced posterior parameters returnd by
@@ -523,7 +525,7 @@ get_reduced_params <- function(center_identity, params_oneshot, sumstats, family
 #' @author Peter Degen
 #'
 #' @export
-get_pred_prob <- function(center_identity, sumstats,
+get_pred_prob <- function(center_identity, sumstats, family,
                           n_sites, reduced_params, use_local_intercepts, remove_intercept = FALSE) {
     if (use_local_intercepts && !remove_intercept) {
         print("Warning: removing intercept from pbox calculation when use_local_intercepts")
@@ -543,6 +545,11 @@ get_pred_prob <- function(center_identity, sumstats,
         as.numeric(t(diff) %*% solve(solve(xx) + solve(lambda)) %*% diff / (m_tilde * sp))
     }
 
+    chi2 <- function(beta1, beta2, sigma1, sigma2) {
+        diff <- beta1 - beta2
+        as.numeric(t(diff) %*% solve(sigma1 + sigma2) %*% diff)
+    }
+
     m <- nrow(sumstats[[1]]$xx)
     if (use_local_intercepts) {
         m <- m - n_sites # subtract local intercepts
@@ -550,54 +557,70 @@ get_pred_prob <- function(center_identity, sumstats,
         m <- m - 1 # subtract global intercept
     }
 
-    bl <- sumstats[[l]]
-    n_l <- bl$n
-
+    ssl <- sumstats[[l]]
     m_tilde <- if (remove_intercept) m else m + 1 # = k in Box 1980
-    xx <- bl$xx
-    xy <- bl$xy
-    yy <- bl$yy
 
-    if (use_local_intercepts) {
-        xxl <- sumstats[[l]]$xx
-        last_n <- (nrow(xxl) - m + 1):nrow(xxl)
-        keep <- sort(unique(c(l, last_n)))
-        xxl <- xxl[keep, keep]
-        xyl <- xy[keep]
-        bhatl <- solve(xxl) %*% xyl
-        sigma2 <- as.numeric((yy - t(bhatl) %*% xxl %*% bhatl) / (n_l - m - 1))
-        # remove intercept
-        bhatl <- bhatl[2:nrow(bhatl), , drop = FALSE]
-    } else {
-        bhatl <- solve(xx) %*% xy
-        sigma2 <- as.numeric((yy - t(bhatl) %*% xx %*% bhatl) / (n_l - m - 1))
-    }
-
-
-    # Assumes intercepts come first in covariate ordering
-    if (use_local_intercepts) {
-        # double check this
-        xx <- xx[(n_sites + 1):(n_sites + m), (n_sites + 1):(n_sites + m)]
-        xy <- bl$xy[(n_sites + 1):(n_sites + m)]
-        beta_minus_l_cov <- rp$beta_minus_l[(n_sites + 1):(n_sites + m)]
-        lambda_minus_l_cov <- rp$lambda_minus_l[(n_sites + 1):(n_sites + m), (n_sites + 1):(n_sites + m)]
-    } else {
-        if (remove_intercept) {
-            xx <- xx[1:m + 1, 1:m + 1]
-            xy <- bl$xy[1:m + 1]
-            bhatl <- bhatl[1:m + 1]
-            beta_minus_l_cov <- rp$beta_minus_l[1:m + 1]
-            lambda_minus_l_cov <- rp$lambda_minus_l[1:m + 1, 1:m + 1]
+    if (family == "gaussian") {
+        n_l <- ssl$n
+        xx <- ssl$xx
+        xy <- ssl$xy
+        yy <- ssl$yy
+        if (use_local_intercepts) {
+            xxl <- sumstats[[l]]$xx
+            last_n <- (nrow(xxl) - m + 1):nrow(xxl)
+            keep <- sort(unique(c(l, last_n)))
+            xxl <- xxl[keep, keep]
+            xyl <- xy[keep]
+            bhatl <- solve(xxl) %*% xyl
+            sigma2 <- as.numeric((yy - t(bhatl) %*% xxl %*% bhatl) / (n_l - m - 1))
+            # remove intercept
+            bhatl <- bhatl[2:nrow(bhatl), , drop = FALSE]
         } else {
-            xy <- bl$xy
-            beta_minus_l_cov <- rp$beta_minus_l
-            lambda_minus_l_cov <- rp$lambda_minus_l
+            bhatl <- solve(xx) %*% xy
+            sigma2 <- as.numeric((yy - t(bhatl) %*% xx %*% bhatl) / (n_l - m - 1))
         }
-    }
 
-    nu <- if (use_local_intercepts) n_l - m else n_l - m - 1
-    f <- fstat(bhatl, beta_minus_l_cov, xx, lambda_minus_l_cov, nu, m_tilde, sigma2, n_l, rp$a_minus_l, rp$b_minus_l)
-    stats::pf(f, df1 = m_tilde, df2 = (n_l - m - 1) + 2 * rp$a_minus_l, lower.tail = FALSE)
+        # Assumes intercepts come first in covariate ordering
+        if (use_local_intercepts) {
+            # double check this
+            xx <- xx[(n_sites + 1):(n_sites + m), (n_sites + 1):(n_sites + m)]
+            xy <- ssl$xy[(n_sites + 1):(n_sites + m)]
+            beta_minus_l_cov <- rp$beta_minus_l[(n_sites + 1):(n_sites + m)]
+            lambda_minus_l_cov <- rp$lambda_minus_l[(n_sites + 1):(n_sites + m), (n_sites + 1):(n_sites + m)]
+        } else {
+            if (remove_intercept) {
+                xx <- xx[1:m + 1, 1:m + 1]
+                xy <- ssl$xy[1:m + 1]
+                bhatl <- bhatl[1:m + 1]
+                beta_minus_l_cov <- rp$beta_minus_l[1:m + 1]
+                lambda_minus_l_cov <- rp$lambda_minus_l[1:m + 1, 1:m + 1]
+            } else {
+                xy <- ssl$xy
+                beta_minus_l_cov <- rp$beta_minus_l
+                lambda_minus_l_cov <- rp$lambda_minus_l
+            }
+        }
+
+        nu <- if (use_local_intercepts) n_l - m else n_l - m - 1
+        f <- fstat(bhatl, beta_minus_l_cov, xx, lambda_minus_l_cov, nu, m_tilde, sigma2, n_l, rp$a_minus_l, rp$b_minus_l)
+        p <- stats::pf(f, df1 = m_tilde, df2 = (n_l - m - 1) + 2 * rp$a_minus_l, lower.tail = FALSE)
+    } else {
+        # GLM case
+        # TO DO: double check this
+        beta_minus_l_cov <- rp$beta_minus_l
+        if (remove_intercept && !use_local_intercepts) {
+            # assumes intercept comes first
+            beta_minus_l_cov <- beta_minus_l_cov[2:nrow(beta_minus_l_cov), ]
+        } # else if use_local_intercepts, intercepts already removed in rp
+        covs <- rownames(beta_minus_l_cov)
+        bhatl <- as.matrix(sumstats[[l]]$beta[covs])
+        sigma_l <- sumstats[[l]]$sigma[covs, covs]
+        sigma_minus_l <- rp$sigma_minus_l
+        m <- nrow(bhatl)
+        chi2 <- chi2(bhatl, beta_minus_l_cov, sigma_l, sigma_minus_l)
+        p <- stats::pchisq(chi2, df = m, lower.tail = FALSE)
+    }
+    p
 }
 #' @title Box prior predictive tail probabilities for all sites
 #'
@@ -627,7 +650,7 @@ pred_check <- function(params_oneshot, sumstats, family,
     results <- lapply(seq_along(sumstats), function(l) {
         reduced_params_l <- confeR::get_reduced_params(l, params_oneshot, sumstats, family)
         pbox <- get_pred_prob(
-            l, sumstats, n_sites,
+            l, sumstats, family, n_sites,
             reduced_params_l, use_local_intercepts, remove_intercept
         )
         list(
