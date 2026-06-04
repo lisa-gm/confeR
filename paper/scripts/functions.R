@@ -346,6 +346,11 @@ fit_pda <- function(target, covariates,
 
     model_pda <- if (family == "gaussian") "DLM" else "ODAL"
 
+    # Ensure local exchange directory exists for local-only PDA runs.
+    if (!dir.exists(dir)) {
+        dir.create(dir, recursive = TRUE)
+    }
+
     # ############################  STEP 1: initialize  ###############################
     ## lead site1: please review and enter "1" to allow putting the control file to the server
     control <- list(project_name = dataname,
@@ -363,23 +368,23 @@ fit_pda <- function(target, covariates,
 
     ## run the example in local directory:
     ## assume lead site1: enter "1" to allow transferring the control file
-    pda(site_id = sites[[1]], control = control, dir = dir)
+    pda(site_id = sites[[1]], control = control, dir = dir, upload_without_confirm = TRUE)
 
     for (site in rev(sites)) {
         ##" assume remote site l: enter "1" to allow tranferring your local estimate
-        pda(site_id = site, ipdata = data_split[[as.numeric(site)]], dir=dir)
+        pda(site_id = site, ipdata = data_split[[as.numeric(site)]], dir=dir, upload_without_confirm = TRUE)
     }
 
     #' ############################'  STEP 2: derivative  ###############################
 
     for (site in rev(sites)) {
         ##' assume remote site l: enter "1" to allow tranferring your derivatives
-        pda(site_id = site, ipdata =  data_split[[as.numeric(site)]], dir=dir)
+        pda(site_id = site, ipdata =  data_split[[as.numeric(site)]], dir=dir, upload_without_confirm = TRUE)
     }
 
     #' ############################'  STEP 3: estimate  ###############################
     ##' assume lead site1: enter "1" to allow tranferring the surrogate estimate
-    pda(site_id = sites[[1]], ipdata = data_split[[1]], dir=dir)
+    pda(site_id = sites[[1]], ipdata = data_split[[1]], dir=dir, upload_without_confirm = TRUE)
 
     ##' the PDA is now completed!
     ##' All the sites can still run their own surrogate estimates and broadcast them.
